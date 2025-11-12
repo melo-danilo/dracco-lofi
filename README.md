@@ -54,6 +54,7 @@ Todas as variáveis abaixo são opcionais (valores padrão entre parênteses):
 - `CHANNEL_NAME` → nome/identificador do canal para reutilizar configs (`""`)
 - `CHANNEL_CONFIG_FILE` → caminho do arquivo `.env` a ser carregado (padrão: `config/<CHANNEL_NAME>.env`)
 - `STREAM_KEY_FILE` → caminho para um arquivo contendo a chave da live (remove quebras de linha)
+- `YOUTUBE_RTMP_BASE` → URL base do servidor RTMP do YouTube (padrão: `rtmp://a.rtmp.youtube.com/live2`). Pode ser `rtmp://a.rtmp.youtube.com/live2`, `rtmp://b.rtmp.youtube.com/live2`, `rtmp://x.rtmp.youtube.com/live2`, etc.
 - `FFMPEG_THREADS` → número de threads usados pelo encoder (`2`)
 - `ENABLE_SERVER` → liga/desliga o servidor HTTP de health-check (`1`)
 
