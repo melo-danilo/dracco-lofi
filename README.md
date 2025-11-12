@@ -36,12 +36,17 @@ Todas as variáveis abaixo são opcionais (valores padrão entre parênteses):
 
 - `MP3_DIR` → diretório das músicas dentro do container (`/app/musicas`)
 - `VIDEO_FILE` → vídeo exibido na live (`/app/video.mp4`)
-- `VIDEO_BITRATE` → bitrate alvo do vídeo (`4000k`)
-- `VIDEO_MAXRATE` → bitrate máximo do vídeo (`4500k`)
-- `VIDEO_BUFSIZE` → buffer do vídeo (`8000k`)
-- `GOP_SIZE` → intervalo de keyframe, em frames (`120`)
-- `AUDIO_BITRATE` → bitrate do áudio (`128k`)
-- `AUDIO_SAMPLE_RATE` → sample rate do áudio (`44100`)
+- `VIDEO_BITRATE` → bitrate alvo do vídeo (`6000k`)
+- `VIDEO_MAXRATE` → bitrate máximo do vídeo (`7500k`)
+- `VIDEO_BUFSIZE` → buffer do vídeo (`12000k`)
+- `VIDEO_SCALE` → resolução de saída no formato `LARGURA:ALTURA` (`1920:1080`)
+- `VIDEO_FPS` → frames por segundo de saída (`30`)
+- `GOP_SIZE` → intervalo de keyframe, em frames (`60`)
+- `VIDEO_PRESET` → preset do x264 (`veryfast`)
+- `VIDEO_FILTER_EXTRA` → filtros FFmpeg adicionais (ex.: `fps=60`)
+- `FORCE_SQUARE_PIXELS` → aplica `setsar=1` para evitar bordas pretas (`1`)
+- `AUDIO_BITRATE` → bitrate do áudio (`160k`)
+- `AUDIO_SAMPLE_RATE` → sample rate do áudio (`48000`)
 - `ENABLE_SERVER` → liga/desliga o servidor HTTP de health-check (`1`)
 
 ---
@@ -62,6 +67,11 @@ docker build -t youtube-live .
 # Execução local (exemplo)
 docker run --rm \
   -e STREAM_URL="rtmp://a.rtmp.youtube.com/live2/SEU_TOKEN" \
+  -e VIDEO_BITRATE=6000k \
+  -e VIDEO_MAXRATE=7500k \
+  -e VIDEO_BUFSIZE=12000k \
+  -e VIDEO_SCALE=1920:1080 \
+  -e VIDEO_FPS=30 \
   youtube-live
 ```
 
@@ -74,3 +84,4 @@ docker run --rm \
 - Use músicas livres de direitos autorais para evitar derrubarem a transmissão.
 - A transmissão é reiniciada automaticamente caso o FFmpeg pare.
 - Atualize `video.mp4` e as músicas sempre que quiser mudar o conteúdo da live.
+- Para 1080p60, configure `VIDEO_FPS=60` e ajuste `VIDEO_BITRATE`/`VIDEO_MAXRATE` (ex.: `VIDEO_BITRATE=8500k`, `VIDEO_MAXRATE=9500k`).

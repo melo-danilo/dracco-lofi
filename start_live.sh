@@ -7,6 +7,9 @@ VIDEO_FILE="${VIDEO_FILE:-$APP_DIR/video.mp4}"
 PLAYLIST_FILE="$APP_DIR/playlist_temp.mp3"
 CONCAT_LIST="$APP_DIR/concat_list.txt"
 RTMP_URL="${STREAM_URL:-}"
+VIDEO_SCALE="${VIDEO_SCALE:-1920:1080}"
+VIDEO_FPS="${VIDEO_FPS:-30}"
+FORCE_SQUARE_PIXELS="${FORCE_SQUARE_PIXELS:-1}"
 
 build_rtmp_url() {
   local stream_key="${YOUTUBE_STREAM_KEY:-${STREAM_KEY:-${STREAMKEY:-}}}"
@@ -87,15 +90,40 @@ concat_mp3s() {
          -f concat -safe 0 -i "$CONCAT_LIST" -c copy "$PLAYLIST_FILE"
 }
 
+build_video_filters() {
+  local filters=()
+
+  if [[ -n "$VIDEO_SCALE" ]]; then
+    filters+=("scale=${VIDEO_SCALE}")
+  fi
+
+  if [[ "$FORCE_SQUARE_PIXELS" == "1" ]]; then
+    filters+=("setsar=1")
+  fi
+
+  if [[ -n "${VIDEO_FILTER_EXTRA:-}" ]]; then
+    filters+=("${VIDEO_FILTER_EXTRA}")
+  fi
+
+  if (( ${#filters[@]} > 0 )); then
+    VIDEO_FILTER_ARGS=(-vf "$(IFS=','; echo "${filters[*]}")")
+  else
+    VIDEO_FILTER_ARGS=()
+  fi
+}
+
 start_live() {
   echo "Iniciando live para '$RTMP_URL'..."
+  build_video_filters
+
   ffmpeg -hide_banner -re \
          -stream_loop -1 -i "$PLAYLIST_FILE" \
          -stream_loop -1 -i "$VIDEO_FILE" \
-         -c:v libx264 -preset veryfast -tune stillimage \
-         -b:v "${VIDEO_BITRATE:-4000k}" -maxrate "${VIDEO_MAXRATE:-4500k}" -bufsize "${VIDEO_BUFSIZE:-8000k}" \
-         -pix_fmt yuv420p -g "${GOP_SIZE:-120}" \
-         -c:a aac -b:a "${AUDIO_BITRATE:-128k}" -ar "${AUDIO_SAMPLE_RATE:-44100}" \
+         -c:v libx264 -preset "${VIDEO_PRESET:-veryfast}" -tune stillimage \
+         -b:v "${VIDEO_BITRATE:-6000k}" -maxrate "${VIDEO_MAXRATE:-7500k}" -bufsize "${VIDEO_BUFSIZE:-12000k}" \
+         -pix_fmt yuv420p -g "${GOP_SIZE:-60}" -r "${VIDEO_FPS}" \
+         "${VIDEO_FILTER_ARGS[@]}" \
+         -c:a aac -b:a "${AUDIO_BITRATE:-160k}" -ar "${AUDIO_SAMPLE_RATE:-48000}" \
          -f flv "$RTMP_URL"
 }
 
