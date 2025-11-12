@@ -1,9 +1,11 @@
-FROM ubuntu:22.04
+FROM python:3.11-slim
 
-# Dependências
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Dependências do sistema (imagem menor e build mais rápido)
 RUN apt-get update && \
-    apt-get install -y ffmpeg python3 python3-pip python3-flask && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends ffmpeg ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
     ENABLE_SERVER=1
