@@ -1,4 +1,0 @@
-{
-  "type": "shell",
-  "start": "bash main.sh"
-}
