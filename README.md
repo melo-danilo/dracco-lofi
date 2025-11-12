@@ -13,7 +13,7 @@
 ### Estrutura
 - `video.mp4` → vídeo curto em loop (7s)
 - `musicas/*.mp3` → suas faixas em MP3
-- `main.sh` → faz o streaming contínuo
+- `start.sh` → faz o streaming contínuo
 - `Procfile` → diz à Railway o que rodar
 
 ### Dica
