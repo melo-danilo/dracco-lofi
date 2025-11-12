@@ -13,7 +13,7 @@ while true; do
       -c:v libx264 -preset veryfast -tune zerolatency -crf 23 \
       -r 30 \
       -c:a aac -b:a 128k -ar 44100 -ac 2 \
-      -f flv rtmp://a.rtmp.youtube.com/live2/$STREAM_KEY
+      - f flv rtmp://a.rtmp.youtube.com/live2/$STREAM_KEY
 
     echo "Música finalizada, próximo..."
     sleep 2

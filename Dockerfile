@@ -1,7 +1,7 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV STREAM_KEY=$STREAM_KEY
+ENV STREAM_KEY=${STREAM_KEY}
 
 # Instala dependências
 RUN apt-get update && apt-get install -y \
@@ -25,4 +25,4 @@ RUN chmod +x start_live.sh
 
 EXPOSE 8080
 
-CMD ["bash", "-c", "./start_live.sh & /app/venv/bin/python3 server.py"]
+CMD ["bash", "-c", "echo $STREAM_KEY && ./start_live.sh & /app/venv/bin/python3 server.py"]
