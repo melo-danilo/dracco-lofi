@@ -1,8 +1,9 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV STREAM_KEY=$STREAM_KEY
 
-# Instala dependências do sistema
+# Instala dependências
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
@@ -14,13 +15,14 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY . /app
 
-# Cria e ativa virtualenv, instala Flask
+# Cria virtualenv e instala Flask
 RUN python3 -m venv venv
 RUN /app/venv/bin/pip install --upgrade pip
 RUN /app/venv/bin/pip install flask
 
-# Expõe porta do Flask para healthcheck
+# Torna o script executável
+RUN chmod +x start_live.sh
+
 EXPOSE 8080
 
-# Comando final: inicia a live e o servidor Flask
 CMD ["bash", "-c", "./start_live.sh & /app/venv/bin/python3 server.py"]
