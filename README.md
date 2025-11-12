@@ -47,6 +47,7 @@ Todas as variáveis abaixo são opcionais (valores padrão entre parênteses):
 - `FORCE_SQUARE_PIXELS` → aplica `setsar=1` para evitar bordas pretas (`1`)
 - `AUDIO_BITRATE` → bitrate do áudio (`160k`)
 - `AUDIO_SAMPLE_RATE` → sample rate do áudio (`44100`)
+- `ENFORCE_CBR` → quando `1`, adiciona flags `-muxdelay 0 -muxpreload 0.5` para fluxo RTMP mais constante (`0`)
 - `FFMPEG_THREADS` → número de threads usados pelo encoder (`2`)
 - `ENABLE_SERVER` → liga/desliga o servidor HTTP de health-check (`1`)
 

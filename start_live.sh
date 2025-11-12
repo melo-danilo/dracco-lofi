@@ -17,6 +17,7 @@ VIDEO_BUFSIZE="${VIDEO_BUFSIZE:-8000k}"
 GOP_SIZE="${GOP_SIZE:-60}"
 AUDIO_BITRATE="${AUDIO_BITRATE:-160k}"
 AUDIO_SAMPLE_RATE="${AUDIO_SAMPLE_RATE:-44100}"
+ENFORCE_CBR="${ENFORCE_CBR:-0}"
 FFMPEG_THREADS="${FFMPEG_THREADS:-2}"
 
 build_rtmp_url() {
@@ -124,7 +125,7 @@ start_live() {
   echo "Iniciando live para '$RTMP_URL'..."
   build_video_filters
 
-  ffmpeg -hide_banner -re \
+  ffmpeg -hide_banner -loglevel info -re \
          -stream_loop -1 -i "$PLAYLIST_FILE" \
          -stream_loop -1 -i "$VIDEO_FILE" \
          -c:v libx264 -preset "${VIDEO_PRESET}" -tune stillimage \
@@ -133,6 +134,7 @@ start_live() {
          -threads "${FFMPEG_THREADS}" \
          "${VIDEO_FILTER_ARGS[@]}" \
          -c:a aac -b:a "${AUDIO_BITRATE}" -ar "${AUDIO_SAMPLE_RATE}" \
+         $( (( ENFORCE_CBR == 1 )) && printf '%s' "-muxdelay 0 -muxpreload 0.5" ) \
          -f flv "$RTMP_URL"
 }
 
