@@ -48,6 +48,12 @@ Todas as variáveis abaixo são opcionais (valores padrão entre parênteses):
 - `AUDIO_BITRATE` → bitrate do áudio (`160k`)
 - `AUDIO_SAMPLE_RATE` → sample rate do áudio (`44100`)
 - `ENFORCE_CBR` → quando `1`, adiciona flags `-muxdelay 0 -muxpreload 0.5` para fluxo RTMP mais constante (`0`)
+- `VIDEO_SOURCE_URL` → URL para baixar o `video.mp4` no startup (opcional)
+- `VIDEO_DOWNLOAD_RETRIES` → número de tentativas ao baixar o vídeo (`3`)
+- `VIDEO_DOWNLOAD_TIMEOUT` → tempo máximo (s) por download (`300`)
+- `CHANNEL_NAME` → nome/identificador do canal para reutilizar configs (`""`)
+- `CHANNEL_CONFIG_FILE` → caminho do arquivo `.env` a ser carregado (padrão: `config/<CHANNEL_NAME>.env`)
+- `STREAM_KEY_FILE` → caminho para um arquivo contendo a chave da live (remove quebras de linha)
 - `FFMPEG_THREADS` → número de threads usados pelo encoder (`2`)
 - `ENABLE_SERVER` → liga/desliga o servidor HTTP de health-check (`1`)
 
@@ -107,3 +113,18 @@ Valores recomendados para manter 1080p estável consumindo menos memória:
 - `ENABLE_SERVER=0` (se não precisar do health-check HTTP)
 
 Monitore os logs: se o ffmpeg for “Killed”, reduza FPS/bitrate ou aumente o preset (ex.: `ultrafast`).
+
+---
+
+## 🎯 Mantendo o mesmo código para múltiplos canais
+
+Para replicar o projeto em vários serviços/canais apenas trocando variáveis:
+
+- `YOUTUBE_STREAM_KEY` ou `STREAM_URL`: configure a chave/canal específico em cada deploy (ou use `STREAM_KEY_FILE` apontando para um arquivo com a chave).
+- `VIDEO_FILE`: aponte para um arquivo diferente já incluído na imagem ou montado por volume.
+- `VIDEO_SOURCE_URL`: defina uma URL (S3, GitHub Releases, CDN etc.) e o container baixará o vídeo ao iniciar — útil quando cada canal precisa de um vídeo diferente sem rebuild.
+- `MP3_DIR`: mantenha a mesma biblioteca de músicas ou monte outra pasta por serviço, se necessário.
+
+Assim você reutiliza o mesmo repositório, alterando apenas as variáveis no painel da Railway/Render.
+
+> Dica: use o modelo `config/example.env`. Copie para `config/<nome-do-canal>.env`, ajuste as variáveis (ex.: `VIDEO_FILE=/app/videos/canal1.mp4`, `VIDEO_BITRATE=3500k`) e defina `CHANNEL_NAME=canal1` no serviço correspondente para que o script carregue tudo automaticamente.

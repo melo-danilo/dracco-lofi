@@ -2,11 +2,28 @@
 set -euo pipefail
 
 APP_DIR="/app"
+CHANNEL_NAME="${CHANNEL_NAME:-}"
+CHANNEL_CONFIG_FILE="${CHANNEL_CONFIG_FILE:-}"
+
+if [[ -n "$CHANNEL_NAME" ]]; then
+  CHANNEL_CONFIG_FILE="${CHANNEL_CONFIG_FILE:-$APP_DIR/config/${CHANNEL_NAME}.env}"
+fi
+
+if [[ -n "$CHANNEL_CONFIG_FILE" && -f "$CHANNEL_CONFIG_FILE" ]]; then
+  echo "Carregando configuração do canal '${CHANNEL_NAME:-default}' em '$CHANNEL_CONFIG_FILE'..."
+  set -a
+  source "$CHANNEL_CONFIG_FILE"
+  set +a
+elif [[ -n "$CHANNEL_CONFIG_FILE" && "$CHANNEL_CONFIG_FILE" != "-" ]]; then
+  echo "Aviso: arquivo de configuração '$CHANNEL_CONFIG_FILE' não encontrado." >&2
+fi
+
 MP3_DIR="${MP3_DIR:-$APP_DIR/musicas}"
 VIDEO_FILE="${VIDEO_FILE:-$APP_DIR/video.mp4}"
 PLAYLIST_FILE="$APP_DIR/playlist_temp.mp3"
 CONCAT_LIST="$APP_DIR/concat_list.txt"
 RTMP_URL="${STREAM_URL:-}"
+STREAM_KEY_FILE="${STREAM_KEY_FILE:-}"
 VIDEO_SCALE="${VIDEO_SCALE:-1920:1080}"
 VIDEO_FPS="${VIDEO_FPS:-30}"
 FORCE_SQUARE_PIXELS="${FORCE_SQUARE_PIXELS:-1}"
@@ -19,14 +36,29 @@ AUDIO_BITRATE="${AUDIO_BITRATE:-160k}"
 AUDIO_SAMPLE_RATE="${AUDIO_SAMPLE_RATE:-44100}"
 ENFORCE_CBR="${ENFORCE_CBR:-0}"
 FFMPEG_THREADS="${FFMPEG_THREADS:-2}"
+VIDEO_SOURCE_URL="${VIDEO_SOURCE_URL:-}"
+VIDEO_DOWNLOAD_RETRIES="${VIDEO_DOWNLOAD_RETRIES:-3}"
+VIDEO_DOWNLOAD_TIMEOUT="${VIDEO_DOWNLOAD_TIMEOUT:-300}"
 
 build_rtmp_url() {
-  local stream_key="${YOUTUBE_STREAM_KEY:-${STREAM_KEY:-${STREAMKEY:-}}}"
+  local file_key=""
+
+  if [[ -n "$STREAM_KEY_FILE" ]]; then
+    if [[ -f "$STREAM_KEY_FILE" ]]; then
+      file_key="$(<"$STREAM_KEY_FILE")"
+    else
+      echo "Erro: arquivo definido em STREAM_KEY_FILE ('${STREAM_KEY_FILE}') não encontrado." >&2
+      exit 1
+    fi
+  fi
+
+  local stream_key="${file_key:-${YOUTUBE_STREAM_KEY:-${STREAM_KEY:-${STREAMKEY:-}}}}"
   local base_url="${YOUTUBE_RTMP_BASE:-rtmp://a.rtmp.youtube.com/live2}"
 
   if [[ -n "$stream_key" ]]; then
     # remove sufixos "/" duplicados
     base_url="${base_url%/}"
+    stream_key="$(printf '%s' "$stream_key" | tr -d '[:space:]')"
     echo "${base_url}/${stream_key}"
     return 0
   fi
@@ -70,6 +102,29 @@ if [[ ! -d "$MP3_DIR" ]]; then
   echo "Erro: diretório de MP3 não encontrado em '$MP3_DIR'." >&2
   exit 1
 fi
+
+ensure_video_file() {
+  if [[ -z "$VIDEO_SOURCE_URL" ]]; then
+    return
+  fi
+
+  echo "Baixando vídeo de '${VIDEO_SOURCE_URL}'..."
+  local tmp_file="${VIDEO_FILE}.download"
+  mkdir -p "$(dirname "$VIDEO_FILE")"
+
+  if curl -fL --connect-timeout 15 --max-time "$VIDEO_DOWNLOAD_TIMEOUT" \
+         --retry "$VIDEO_DOWNLOAD_RETRIES" --retry-delay 2 \
+         -o "$tmp_file" "$VIDEO_SOURCE_URL"; then
+    mv "$tmp_file" "$VIDEO_FILE"
+    echo "Vídeo salvo em '$VIDEO_FILE'."
+  else
+    echo "Erro ao baixar vídeo de '${VIDEO_SOURCE_URL}'." >&2
+    rm -f "$tmp_file"
+    exit 1
+  fi
+}
+
+ensure_video_file
 
 if [[ ! -f "$VIDEO_FILE" ]]; then
   echo "Erro: arquivo de vídeo não encontrado em '$VIDEO_FILE'." >&2
