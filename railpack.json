@@ -1,4 +1,4 @@
 {
   "type": "shell",
-  "start": "bash start.sh"
+  "start": "bash main.sh"
 }
