@@ -2,8 +2,11 @@ FROM ubuntu:22.04
 
 # Dependências
 RUN apt-get update && \
-    apt-get install -y ffmpeg python3 python3-pip && \
-    apt-get clean
+    apt-get install -y ffmpeg python3 python3-pip python3-flask && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONUNBUFFERED=1 \
+    ENABLE_SERVER=1
 
 WORKDIR /app
 COPY . /app
