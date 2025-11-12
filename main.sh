@@ -7,7 +7,7 @@ set -euo pipefail
 
 STREAMKEY=${STREAMKEY:-"COLOQUE_SUA_STREAMKEY_AQUI"}
 VIDEO="video.mp4"
-PLAYLIST_DIR="musicas"
+PLAYLIST_DIR="musicas_clean"
 LOGFILE="stream.log"
 
 echo "Iniciando live dinâmica - $(date)" | tee -a "$LOGFILE"
@@ -16,7 +16,8 @@ echo "Iniciando live dinâmica - $(date)" | tee -a "$LOGFILE"
 while true; do
     # Lista todas as MP3s atuais
     MP3_LIST=("$PLAYLIST_DIR"/*.mp3)
-    # Ignora se não houver MP3s
+
+    # Se não houver MP3s, aguarda 10 segundos e tenta de novo
     if [ ! -e "${MP3_LIST[0]}" ]; then
         echo "Nenhuma MP3 encontrada em $PLAYLIST_DIR. Aguardando 10s..." | tee -a "$LOGFILE"
         sleep 10
