@@ -1,25 +1,38 @@
 #!/bin/bash
 set -e
 
-# Caminho dos arquivos
-MP3_DIR="/app/mp3"
-VIDEO_FILE="/app/video.mp4"
-TEMP_PLAYLIST="/app/playlist_temp.mp3"
-CONCAT_LIST="/app/concat_list.txt"
-STREAM_KEY="SEU_STREAM_KEY"
-YOUTUBE_URL="rtmp://a.rtmp.youtube.com/live2/$STREAM_KEY"
+APP_DIR="/app"
+MP3_DIR="$APP_DIR/mp3"
+VIDEO_FILE="$APP_DIR/video.mp4"
+TEMP_PLAYLIST="$APP_DIR/playlist_temp.mp3"
+RTMP_URL="${STREAM_URL}"   # Coloque sua stream key como env var
 
-echo "Gerando lista de concatenação..."
-rm -f "$CONCAT_LIST"
-for f in "$MP3_DIR"/*.mp3; do
-    echo "file '$f'" >> "$CONCAT_LIST"
+# Função para gerar concat_list.txt
+generate_concat_list() {
+  echo "Gerando lista de concatenação..."
+  ls "$MP3_DIR"/*.mp3 | sort | awk '{print "file \x27" $0 "\x27"}' > "$APP_DIR/concat_list.txt"
+}
+
+# Função para concatenar MP3s
+concat_mp3s() {
+  echo "Concatenando MP3s..."
+  ffmpeg -f concat -safe 0 -i "$APP_DIR/concat_list.txt" -c copy "$TEMP_PLAYLIST"
+}
+
+# Função para iniciar live
+start_live() {
+  echo "Iniciando live..."
+  ffmpeg -re -stream_loop -1 -i "$TEMP_PLAYLIST" \
+         -stream_loop -1 -i "$VIDEO_FILE" \
+         -c:v libx264 -b:v 6000k -pix_fmt yuv420p \
+         -c:a aac -b:a 128k -ar 44100 -f flv "$RTMP_URL"
+}
+
+# Loop infinito para manter ffmpeg ativo
+while true; do
+  generate_concat_list
+  concat_mp3s
+  start_live
+  echo "ffmpeg travou ou terminou inesperadamente. Reiniciando..."
+  sleep 2
 done
-
-echo "Concatenando MP3s..."
-ffmpeg -f concat -safe 0 -i "$CONCAT_LIST" -c copy "$TEMP_PLAYLIST"
-
-echo "Iniciando live no YouTube..."
-ffmpeg -re -stream_loop -1 -i "$VIDEO_FILE" -i "$TEMP_PLAYLIST" \
--c:v libx264 -preset veryfast -b:v 4500k -maxrate 4500k -bufsize 9000k -pix_fmt yuv420p \
--c:a aac -b:a 128k -ar 44100 -ac 2 \
--shortest -f flv "$YOUTUBE_URL"
