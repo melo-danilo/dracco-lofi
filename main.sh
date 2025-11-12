@@ -7,7 +7,7 @@ set -euo pipefail
 
 STREAMKEY=${STREAMKEY:-"COLOQUE_SUA_STREAMKEY_AQUI"}
 VIDEO="video.mp4"
-PLAYLIST_DIR="musicas_clean"
+PLAYLIST_DIR="musicas_fixed"
 LOGFILE="stream.log"
 
 echo "Iniciando live dinâmica - $(date)" | tee -a "$LOGFILE"
