@@ -1,14 +1,9 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from flask import Flask
+app = Flask(__name__)
 
-PORT = 8000
-
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
+@app.route("/")
+def index():
+    return "Alive"
 
 if __name__ == "__main__":
-    server = HTTPServer(('', PORT), Handler)
-    print(f"Servidor pingável rodando na porta {PORT}")
-    server.serve_forever()
+    app.run(host="0.0.0.0", port=8080)

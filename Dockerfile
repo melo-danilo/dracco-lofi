@@ -1,25 +1,26 @@
-# Base image com ffmpeg e python
-FROM ubuntu:22.04
+FROM ubuntu:24.04
+
+# Variáveis de ambiente
+ENV DEBIAN_FRONTEND=noninteractive
+ENV STREAM_KEY=$STREAM_KEY
 
 # Instala dependências
-RUN apt-get update && \
-    apt-get install -y ffmpeg python3 python3-pip tini && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    python3 \
+    python3-pip \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Define diretório de trabalho
+# Copia arquivos
 WORKDIR /app
-
-# Copia todos os arquivos do projeto
 COPY . /app
 
-# Dá permissão de execução ao script
-RUN chmod +x main.sh
+# Instala Flask
+RUN pip3 install flask
 
-# Expõe porta para ping
-EXPOSE 8000
+# Expõe porta para o healthcheck
+EXPOSE 8080
 
-# Usa tini como init para gerenciar sinais corretamente
-ENTRYPOINT ["/usr/bin/tini", "--"]
-
-# Comando principal em JSON (forma recomendada)
-CMD ["bash", "-c", "./main.sh & python3 server.py"]
+# Comando para iniciar ffmpeg em loop e o server.py
+CMD ["bash", "-c", "./start_live.sh & python3 server.py"]
