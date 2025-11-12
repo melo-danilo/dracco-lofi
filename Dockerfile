@@ -4,10 +4,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Dependências do sistema (imagem menor e build mais rápido)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg ca-certificates && \
+    apt-get install -y --no-install-recommends ffmpeg ca-certificates python3-flask && \
     rm -rf /var/lib/apt/lists/*
-
-RUN pip install --no-cache-dir Flask
 
 ENV PYTHONUNBUFFERED=1 \
     ENABLE_SERVER=1
