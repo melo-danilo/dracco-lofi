@@ -7,6 +7,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
+RUN pip install --no-cache-dir Flask
+
 ENV PYTHONUNBUFFERED=1 \
     ENABLE_SERVER=1
 

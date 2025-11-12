@@ -10,6 +10,14 @@ RTMP_URL="${STREAM_URL:-}"
 VIDEO_SCALE="${VIDEO_SCALE:-1920:1080}"
 VIDEO_FPS="${VIDEO_FPS:-30}"
 FORCE_SQUARE_PIXELS="${FORCE_SQUARE_PIXELS:-1}"
+VIDEO_PRESET="${VIDEO_PRESET:-superfast}"
+VIDEO_BITRATE="${VIDEO_BITRATE:-4500k}"
+VIDEO_MAXRATE="${VIDEO_MAXRATE:-5500k}"
+VIDEO_BUFSIZE="${VIDEO_BUFSIZE:-8000k}"
+GOP_SIZE="${GOP_SIZE:-60}"
+AUDIO_BITRATE="${AUDIO_BITRATE:-160k}"
+AUDIO_SAMPLE_RATE="${AUDIO_SAMPLE_RATE:-44100}"
+FFMPEG_THREADS="${FFMPEG_THREADS:-2}"
 
 build_rtmp_url() {
   local stream_key="${YOUTUBE_STREAM_KEY:-${STREAM_KEY:-${STREAMKEY:-}}}"
@@ -119,11 +127,12 @@ start_live() {
   ffmpeg -hide_banner -re \
          -stream_loop -1 -i "$PLAYLIST_FILE" \
          -stream_loop -1 -i "$VIDEO_FILE" \
-         -c:v libx264 -preset "${VIDEO_PRESET:-veryfast}" -tune stillimage \
-         -b:v "${VIDEO_BITRATE:-6000k}" -maxrate "${VIDEO_MAXRATE:-7500k}" -bufsize "${VIDEO_BUFSIZE:-12000k}" \
-         -pix_fmt yuv420p -g "${GOP_SIZE:-60}" -r "${VIDEO_FPS}" \
+         -c:v libx264 -preset "${VIDEO_PRESET}" -tune stillimage \
+         -b:v "${VIDEO_BITRATE}" -maxrate "${VIDEO_MAXRATE}" -bufsize "${VIDEO_BUFSIZE}" \
+         -pix_fmt yuv420p -g "${GOP_SIZE}" -r "${VIDEO_FPS}" \
+         -threads "${FFMPEG_THREADS}" \
          "${VIDEO_FILTER_ARGS[@]}" \
-         -c:a aac -b:a "${AUDIO_BITRATE:-160k}" -ar "${AUDIO_SAMPLE_RATE:-48000}" \
+         -c:a aac -b:a "${AUDIO_BITRATE}" -ar "${AUDIO_SAMPLE_RATE}" \
          -f flv "$RTMP_URL"
 }
 
