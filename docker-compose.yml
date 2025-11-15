@@ -10,7 +10,7 @@ services:
       - .env.secrets
 
     volumes:
-      - ./musics_fixed:/app/musics_fixed:ro
+      - ./musicas_fixed:/app/musicas_fixed:
       - ./config:/app/config:ro
 
     ports:
