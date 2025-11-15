@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  livebot:
+    build: .
+    container_name: livebot
+    restart: unless-stopped
+
+    env_file:
+      - .env.secrets
+
+    volumes:
+      - ./musics_fixed:/app/musics_fixed:ro
+      - ./config:/app/config:ro
+
+    ports:
+      - "8080:8080"
