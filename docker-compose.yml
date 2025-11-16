@@ -1,19 +1,34 @@
 version: "3.8"
 
 services:
-  livebot:
+  cozy:
     build: .
-    container_name: livebot
+    container_name: cozy_live
     restart: unless-stopped
 
     env_file:
-      - .env.secrets
-      - ./config/cozyrainbeats.env
+      - .env.cozy
 
     volumes:
-      - ./musicas_fixed:/app/musicas_fixed
+      - ./musicas_cozy:/app/musicas_cozy:ro
+      - ./video:/app/video:ro
       - ./config:/app/config:ro
-      - ./video.mp4:/app/video.mp4:ro
 
     ports:
-      - "8080:8080"
+      - "8081:8080"
+
+  dracco:
+    build: .
+    container_name: dracco_live
+    restart: unless-stopped
+
+    env_file:
+      - .env.dracco
+
+    volumes:
+      - ./musicas_dracco:/app/musicas_dracco:ro
+      - ./video:/app/video:ro
+      - ./config:/app/config:ro
+
+    ports:
+      - "8082:8080"

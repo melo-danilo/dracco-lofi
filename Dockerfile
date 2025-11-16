@@ -13,4 +13,7 @@ COPY . /app
 
 RUN chmod +x /app/start_live.sh
 
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8080/ || exit 1
+
 CMD ["/app/start_live.sh"]
