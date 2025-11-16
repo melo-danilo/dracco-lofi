@@ -8,10 +8,12 @@ services:
 
     env_file:
       - .env.secrets
+      - ./config/cozyrainbeats.env
 
     volumes:
-      - ./musicas_fixed:/app/musicas_fixed:
+      - ./musicas_fixed:/app/musicas_fixed
       - ./config:/app/config:ro
+      - ./video.mp4:/app/video.mp4:ro
 
     ports:
       - "8080:8080"
