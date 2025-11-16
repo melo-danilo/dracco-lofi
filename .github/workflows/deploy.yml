@@ -28,5 +28,6 @@ jobs:
         username: ${{ secrets.CONTABO_USER }}
         key: ${{ secrets.CONTABO_SSH_KEY }}
         script: |
+          git config --global --add safe.directory /root/dracco-stack
           cd /root/dracco-stack
           bash deploy.sh
