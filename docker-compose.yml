@@ -3,40 +3,22 @@ version: "3.8"
 services:
   cozy:
     build: .
-    env_file:
-      - .env.cozy
+    environment:
+      CHANNEL_NAME: cozy
     volumes:
-      - ./musicas_cozy:/app/musicas_cozy:ro
-      - ./video:/app/video:ro
       - ./config:/app/config:ro
-    deploy:
-      mode: replicated
-      replicas: 1
-      update_config:
-        order: start-first
-        parallelism: 1
-        failure_action: rollback
-      restart_policy:
-        condition: on-failure
+      - ./musicas_cozy:/app/musicas:ro
+      - ./video:/app/video:ro
     ports:
       - "8081:8080"
 
   dracco:
     build: .
-    env_file:
-      - .env.dracco
+    environment:
+      CHANNEL_NAME: dracco
     volumes:
-      - ./musicas_dracco:/app/musicas_dracco:ro
-      - ./video:/app/video:ro
       - ./config:/app/config:ro
-    deploy:
-      mode: replicated
-      replicas: 1
-      update_config:
-        order: start-first
-        parallelism: 1
-        failure_action: rollback
-      restart_policy:
-        condition: on-failure
+      - ./musicas_dracco:/app/musicas:ro
+      - ./video:/app/video:ro
     ports:
       - "8082:8080"

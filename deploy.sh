@@ -1,16 +1,10 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -e
 
-STACK_DIR="${STACK_DIR:-/root/dracco-stack}"
-STACK_FILE="${STACK_FILE:-docker-stack.yml}"
-IMAGE="${IMAGE:-${DOCKERHUB_USER:-melodanilo}/dracco-lofi:latest}"
-STACK_NAME="${STACK_NAME:-lofi}"
+cd /root/dracco-stack
 
-echo "Pulling image ${IMAGE}..."
-docker pull "${IMAGE}"
+git pull
 
-echo "Deploying stack ${STACK_NAME}..."
-cd "${STACK_DIR}"
-docker stack deploy -c "${STACK_FILE}" "${STACK_NAME}"
+docker build -t melodanilo/dracco-lofi:latest .
 
-echo "Done. Use 'docker service logs ${STACK_NAME}_cozy -f' to tail logs."
+docker stack deploy --with-registry-auth -c docker-stack.yml lofi

@@ -1,85 +1,48 @@
 version: "3.8"
 
 services:
-
   cozy:
     image: melodanilo/dracco-lofi:latest
-    env_file:
-      - .env.cozy
-    volumes:
-      - type: bind
-        source: ./musicas_cozy
-        target: /app/musicas_cozy
-        read_only: true
-      - type: bind
-        source: ./video
-        target: /app/video
-        read_only: true
-      - type: bind
-        source: ./config
-        target: /app/config
-        read_only: true
-    ports:
-      - target: 8080
-        published: 8081
-        protocol: tcp
-        mode: host
     deploy:
-      mode: replicated
       replicas: 1
-      update_config:
-        order: start-first
-        parallelism: 1
-        delay: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
+      update_config:
+        parallelism: 1
+        order: start-first
+    environment:
+      CHANNEL_NAME: "cozy"
+    volumes:
+      - ./config:/app/config:ro
+      - ./musicas_cozy:/app/musicas:ro
+      - ./video:/app/video:ro
+    ports:
+      - "8081:8080"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-    networks:
-      - live_net
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 10s
+      timeout: 2s
+      retries: 5
 
   dracco:
     image: melodanilo/dracco-lofi:latest
-    env_file:
-      - .env.dracco
-    volumes:
-      - type: bind
-        source: ./musicas_dracco
-        target: /app/musicas_dracco
-        read_only: true
-      - type: bind
-        source: ./video
-        target: /app/video
-        read_only: true
-      - type: bind
-        source: ./config
-        target: /app/config
-        read_only: true
-    ports:
-      - target: 8080
-        published: 8082
-        protocol: tcp
-        mode: host
     deploy:
-      mode: replicated
       replicas: 1
-      update_config:
-        order: start-first
-        parallelism: 1
-        delay: 10s
       restart_policy:
-        condition: on-failure
+        condition: any
+      update_config:
+        parallelism: 1
+        order: start-first
+    environment:
+      CHANNEL_NAME: "dracco"
+    volumes:
+      - ./config:/app/config:ro
+      - ./musicas_dracco:/app/musicas:ro
+      - ./video:/app/video:ro
+    ports:
+      - "8082:8080"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-    networks:
-      - live_net
-
-networks:
-  live_net:
-    driver: overlay
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 10s
+      timeout: 2s
+      retries: 5

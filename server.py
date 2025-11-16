@@ -1,14 +1,9 @@
-from flask import Flask, jsonify
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-app = Flask(__name__)
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok")
 
-@app.route("/")
-def home():
-    return "Servidor ativo. Live rodando."
-
-@app.route("/health")
-def health():
-    return jsonify({"status": "ok"}), 200
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+HTTPServer(("", 8080), Handler).serve_forever()
