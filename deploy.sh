@@ -1,24 +1,16 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-STACK_NAME="livestreams"
-COMPOSE_FILE="docker-stack.yml"
+STACK_DIR="${STACK_DIR:-/root/dracco-stack}"
+STACK_FILE="${STACK_FILE:-docker-stack.yml}"
+IMAGE="${IMAGE:-${DOCKERHUB_USER:-melodanilo}/dracco-lofi:latest}"
+STACK_NAME="${STACK_NAME:-lofi}"
 
-echo "==> Buildando imagens locais..."
-docker build -t dracco-lofi:cozy .
-docker build -t dracco-lofi:dracco .
+echo "Pulling image ${IMAGE}..."
+docker pull "${IMAGE}"
 
-# Se quiser enviar para DockerHub/GitHub Container Registry, descomente:
-# echo "==> Fazendo push das imagens..."
-# docker tag dracco-lofi:cozy SEU_REGISTRY/dracco-lofi:cozy
-# docker tag dracco-lofi:dracco SEU_REGISTRY/dracco-lofi:dracco
-# docker push SEU_REGISTRY/dracco-lofi:cozy
-# docker push SEU_REGISTRY/dracco-lofi:dracco
+echo "Deploying stack ${STACK_NAME}..."
+cd "${STACK_DIR}"
+docker stack deploy -c "${STACK_FILE}" "${STACK_NAME}"
 
-echo "==> Deployando stack..."
-docker stack deploy -c $COMPOSE_FILE $STACK_NAME
-
-echo "==> Status dos serviços:"
-docker stack services $STACK_NAME
-
-echo "==> Deploy finalizado com sucesso (rolling update start-first)."
+echo "Done. Use 'docker service logs ${STACK_NAME}_cozy -f' to tail logs."

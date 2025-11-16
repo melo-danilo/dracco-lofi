@@ -1,14 +1,9 @@
 version: "3.8"
 
-networks:
-  livestreams_net:
-    driver: overlay
-    attachable: true
-
 services:
 
   cozy:
-    image: dracco-lofi:cozy
+    image: melodanilo/dracco-lofi:latest
     env_file:
       - .env.cozy
     volumes:
@@ -29,30 +24,25 @@ services:
         published: 8081
         protocol: tcp
         mode: host
-    networks:
-      - livestreams_net
     deploy:
       mode: replicated
       replicas: 1
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 1500M
       update_config:
         order: start-first
         parallelism: 1
         delay: 10s
       restart_policy:
         condition: on-failure
-      health_check:
-        test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/ || exit 1"]
-        interval: 10s
-        timeout: 3s
-        retries: 3
-
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - live_net
 
   dracco:
-    image: dracco-lofi:dracco
+    image: melodanilo/dracco-lofi:latest
     env_file:
       - .env.dracco
     volumes:
@@ -73,23 +63,23 @@ services:
         published: 8082
         protocol: tcp
         mode: host
-    networks:
-      - livestreams_net
     deploy:
       mode: replicated
       replicas: 1
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 1500M
       update_config:
         order: start-first
         parallelism: 1
         delay: 10s
       restart_policy:
         condition: on-failure
-      health_check:
-        test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/ || exit 1"]
-        interval: 10s
-        timeout: 3s
-        retries: 3
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - live_net
+
+networks:
+  live_net:
+    driver: overlay
