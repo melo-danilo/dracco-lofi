@@ -1,41 +1,26 @@
-name: Deploy to Contabo (Swarm safe)
+name: Deploy Live Streams
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Archive repository
-        run: tar -czf repo.tgz .
-
-      - name: Copy archive to server
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.CONTABO_HOST }}
-          username: ${{ secrets.CONTABO_USER }}
-          key: ${{ secrets.CONTABO_SSH_KEY }}
-          port: ${{ secrets.CONTABO_SSH_PORT }}
-          source: "repo.tgz"
-          target: "/root/tmp/"
-
-      - name: Extract and deploy on server
-        uses: appleboy/ssh-action@v0.1.8
-        with:
-          host: ${{ secrets.CONTABO_HOST }}
-          username: ${{ secrets.CONTABO_USER }}
-          key: ${{ secrets.CONTABO_SSH_KEY }}
-          port: ${{ secrets.CONTABO_SSH_PORT }}
-          script: |
-            set -e
-            mkdir -p /root/dracco-lofi
-            tar -xzf /root/tmp/repo.tgz -C /root/dracco-lofi --strip-components=1
-            cd /root/dracco-lofi
-            chmod +x ./deploy.sh
-            # Build & deploy (adjust CPUS/MEM via env if desired)
-            ./deploy.sh
+    - name: Deploy to Contabo via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.CONTABO_HOST }}
+        username: root
+        key: ${{ secrets.CONTABO_SSH_KEY }}
+        script: |
+          cd /root/dracco-lofi
+          git reset --hard
+          git pull origin main
+          chmod +x deploy.sh
+          ./deploy.sh

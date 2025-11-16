@@ -1,27 +1,24 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -e
 
-APPDIR="${APPDIR:-/root/dracco-lofi}"
-STACK_FILE="${STACK_FILE:-docker-stack.yml}"
-STACK_NAME="${STACK_NAME:-livestreams}"
+STACK_NAME="livestreams"
+COMPOSE_FILE="docker-stack.yml"
 
-echo "Deploy script - appdir=$APPDIR stack=$STACK_FILE"
+echo "==> Buildando imagens locais..."
+docker build -t dracco-lofi:cozy .
+docker build -t dracco-lofi:dracco .
 
-cd "$APPDIR"
+# Se quiser enviar para DockerHub/GitHub Container Registry, descomente:
+# echo "==> Fazendo push das imagens..."
+# docker tag dracco-lofi:cozy SEU_REGISTRY/dracco-lofi:cozy
+# docker tag dracco-lofi:dracco SEU_REGISTRY/dracco-lofi:dracco
+# docker push SEU_REGISTRY/dracco-lofi:cozy
+# docker push SEU_REGISTRY/dracco-lofi:dracco
 
-# build cozy image
-echo "Building image: dracco-lofi:cozy"
-docker build --pull -t dracco-lofi:cozy --build-arg CHANNEL=cozy .
+echo "==> Deployando stack..."
+docker stack deploy -c $COMPOSE_FILE $STACK_NAME
 
-# build dracco image
-echo "Building image: dracco-lofi:dracco"
-docker build --pull -t dracco-lofi:dracco --build-arg CHANNEL=dracco .
+echo "==> Status dos serviços:"
+docker stack services $STACK_NAME
 
-# deploy stack (Swarm)
-echo "Deploying stack $STACK_NAME with $STACK_FILE"
-docker stack deploy -c "$STACK_FILE" "$STACK_NAME"
-
-echo "Deploy iniciado. Verificando serviços..."
-sleep 5
-docker stack services "$STACK_NAME"
-echo "Done."
+echo "==> Deploy finalizado com sucesso (rolling update start-first)."
