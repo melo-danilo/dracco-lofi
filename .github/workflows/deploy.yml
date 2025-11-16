@@ -15,18 +15,18 @@ jobs:
     - name: Copiar arquivos para o servidor
       uses: appleboy/scp-action@v0.1.7
       with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
+        host: ${{ secrets.CONTABO_HOST }}
+        username: ${{ secrets.CONTABO_USER }}
+        key: ${{ secrets.CONTABO_SSH_KEY }}
         source: "."
         target: "/root/dracco-stack"
 
-    - name: Executar deploy remoto
+    - name: Executar deploy Contabo
       uses: appleboy/ssh-action@v0.1.6
       with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
+        host: ${{ secrets.CONTABO_HOST }}
+        username: ${{ secrets.CONTABO_USER }}
+        key: ${{ secrets.CONTABO_SSH_KEY }}
         script: |
           cd /root/dracco-stack
           bash deploy.sh
