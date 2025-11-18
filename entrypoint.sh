@@ -20,9 +20,10 @@ source "$CHANNEL_CONFIG_FILE"
 set +a
 
 MP3_DIR="${MP3_DIR:-$APP_DIR/musicas}"
-VIDEO_FILE="${VIDEO_FILE:-$APP_DIR/video/${CHANNEL_NAME}.mp4}"
+VIDEO_DIR="${VIDEO_DIR:-$APP_DIR/video}"
 PLAYLIST_FILE="$APP_DIR/playlist_temp.mp3"
 CONCAT_LIST="$APP_DIR/concat_list.txt"
+FFMPEG_PID_FILE="$APP_DIR/ffmpeg.pid"
 
 VIDEO_SCALE="${VIDEO_SCALE:-1920:1080}"
 VIDEO_FPS="${VIDEO_FPS:-30}"
@@ -34,6 +35,9 @@ GOP_SIZE="${GOP_SIZE:-60}"
 AUDIO_BITRATE="${AUDIO_BITRATE:-160k}"
 AUDIO_SAMPLE_RATE="${AUDIO_SAMPLE_RATE:-44100}"
 FFMPEG_THREADS="${FFMPEG_THREADS:-2}"
+
+# Hora para encerrar e reiniciar a live (formato: HH, ex: 12)
+RESTART_HOUR="${RESTART_HOUR:-12}"
 
 build_rtmp_url() {
   [[ -z "${YOUTUBE_STREAM_KEY:-}" ]] && return 1
@@ -48,8 +52,102 @@ start_healthcheck_server() {
   SERVER_PID=$!
 }
 
+# Função para selecionar o vídeo a ser usado
+# Filtra vídeos pelo nome do canal (ex: cozy_1.mp4, cozy_2.mp4 para canal "cozy")
+select_video() {
+  local video_file=""
+  
+  # Se VIDEO_FILE estiver definido explicitamente, usa ele
+  if [[ -n "${VIDEO_FILE:-}" ]] && [[ -f "${VIDEO_FILE}" ]]; then
+    echo "${VIDEO_FILE}"
+    return 0
+  fi
+  
+  # Procura vídeos que correspondem ao padrão do canal: ${CHANNEL_NAME}_*.mp4
+  shopt -s nullglob
+  local channel_videos=("$VIDEO_DIR/${CHANNEL_NAME}_"*.mp4)
+  shopt -u nullglob
+  
+  # Se não encontrou vídeos com o padrão do canal, tenta o padrão antigo: ${CHANNEL_NAME}.mp4
+  if [[ ${#channel_videos[@]} -eq 0 ]]; then
+    local fallback_video="$VIDEO_DIR/${CHANNEL_NAME}.mp4"
+    if [[ -f "$fallback_video" ]]; then
+      echo "$fallback_video"
+      return 0
+    else
+      echo "[ERRO] Nenhum vídeo encontrado para o canal '${CHANNEL_NAME}'" >&2
+      echo "[ERRO] Procurando por: ${CHANNEL_NAME}_*.mp4 ou ${CHANNEL_NAME}.mp4" >&2
+      exit 1
+    fi
+  fi
+  
+  # Se houver apenas um vídeo do canal, usa ele
+  if [[ ${#channel_videos[@]} -eq 1 ]]; then
+    video_file="${channel_videos[0]}"
+    echo "[INFO] Usando vídeo: $(basename "$video_file")" >&2
+  else
+    # Se houver múltiplos vídeos do canal, rotaciona entre eles
+    local state_file="$APP_DIR/video_state_${CHANNEL_NAME}.txt"
+    local current_index=0
+    
+    if [[ -f "$state_file" ]]; then
+      current_index=$(cat "$state_file" 2>/dev/null || echo "0")
+      current_index=$((current_index + 1))
+    fi
+    
+    # Rotaciona entre os vídeos disponíveis do canal
+    current_index=$((current_index % ${#channel_videos[@]}))
+    video_file="${channel_videos[$current_index]}"
+    
+    # Salva o índice para a próxima vez
+    echo "$current_index" > "$state_file"
+    
+    echo "[INFO] Selecionado vídeo: $(basename "$video_file") (${current_index}/${#channel_videos[@]})" >&2
+  fi
+  
+  echo "$video_file"
+}
+
+# Verifica se é hora de reiniciar (12h)
+should_restart() {
+  local current_hour=$(date +%H)
+  local current_minute=$(date +%M)
+  # Reinicia se for a hora configurada e estiver nos primeiros 5 minutos (para garantir que capture)
+  [[ "$current_hour" == "$RESTART_HOUR" ]] && [[ "$current_minute" -lt 5 ]]
+}
+
+# Encerra o FFmpeg graciosamente
+stop_ffmpeg() {
+  if [[ -f "$FFMPEG_PID_FILE" ]]; then
+    local pid=$(cat "$FFMPEG_PID_FILE" 2>/dev/null || echo "")
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      echo "[INFO] Encerrando stream atual (PID: $pid)..." >&2
+      # Envia SIGTERM para encerrar graciosamente
+      kill -TERM "$pid" 2>/dev/null || true
+      
+      # Aguarda até 30 segundos para o processo terminar
+      local count=0
+      while kill -0 "$pid" 2>/dev/null && [[ $count -lt 30 ]]; do
+        sleep 1
+        count=$((count + 1))
+      done
+      
+      # Se ainda estiver rodando, força o encerramento
+      if kill -0 "$pid" 2>/dev/null; then
+        echo "[WARN] Forçando encerramento do FFmpeg..." >&2
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
+      
+      rm -f "$FFMPEG_PID_FILE"
+      echo "[INFO] Stream encerrado." >&2
+      sleep 2
+    fi
+  fi
+}
+
 cleanup() {
-  rm -f "$PLAYLIST_FILE" "$CONCAT_LIST"
+  stop_ffmpeg
+  rm -f "$PLAYLIST_FILE" "$CONCAT_LIST" "$FFMPEG_PID_FILE"
   kill "$SERVER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -57,7 +155,7 @@ trap cleanup EXIT
 RTMP_URL="$(build_rtmp_url || echo "")"
 
 [[ ! -d "$MP3_DIR" ]] && echo "Erro: MP3_DIR inválido" && exit 1
-[[ ! -f "$VIDEO_FILE" ]] && echo "Erro: vídeo inválido" && exit 1
+[[ ! -d "$VIDEO_DIR" ]] && echo "Erro: VIDEO_DIR inválido" && exit 1
 
 shopt -s nullglob
 MP3_FILES=("$MP3_DIR"/*.mp3)
@@ -86,15 +184,61 @@ FF_ARGS=(
 start_healthcheck_server
 generate_playlist
 
+# Variável para rastrear se já reiniciamos nesta hora
+LAST_RESTART_TIME=""
+
+# Loop principal
 while true; do
+  # Verifica se é hora de reiniciar
+  if should_restart && [[ "$LAST_RESTART_TIME" != "$(date +%H)" ]]; then
+    echo "[INFO] Hora de reiniciar a live (${RESTART_HOUR}h)..." >&2
+    stop_ffmpeg
+    LAST_RESTART_TIME=$(date +%H)
+    
+    # Aguarda alguns segundos antes de reiniciar
+    sleep 5
+  fi
+  
+  # Seleciona o vídeo a ser usado
+  VIDEO_FILE=$(select_video)
+  
+  if [[ ! -f "$VIDEO_FILE" ]]; then
+    echo "Erro: vídeo não encontrado: $VIDEO_FILE" >&2
+    sleep 10
+    continue
+  fi
+  
+  echo "[INFO] Iniciando stream com vídeo: $(basename "$VIDEO_FILE")" >&2
+  
+  # Inicia o FFmpeg em background e salva o PID
   if [[ "$PREVIEW" == "1" ]]; then
     ffmpeg -re -stream_loop -1 -i "$PLAYLIST_FILE" \
       -stream_loop -1 -i "$VIDEO_FILE" \
-      "${FF_ARGS[@]}" -f mp4 -y "/tmp/preview_${CHANNEL_NAME}.mp4"
+      "${FF_ARGS[@]}" -f mp4 -y "/tmp/preview_${CHANNEL_NAME}.mp4" &
   else
     ffmpeg -re -stream_loop -1 -i "$PLAYLIST_FILE" \
       -stream_loop -1 -i "$VIDEO_FILE" \
-      "${FF_ARGS[@]}" -f flv "$RTMP_URL"
+      "${FF_ARGS[@]}" -f flv "$RTMP_URL" &
   fi
-  sleep 2
+  
+  FFMPEG_PID=$!
+  echo "$FFMPEG_PID" > "$FFMPEG_PID_FILE"
+  
+  # Monitora o processo FFmpeg e verifica a hora periodicamente
+  while kill -0 "$FFMPEG_PID" 2>/dev/null; do
+    sleep 60  # Verifica a cada minuto
+    
+    # Se for hora de reiniciar, sai do loop interno
+    if should_restart && [[ "$LAST_RESTART_TIME" != "$(date +%H)" ]]; then
+      break
+    fi
+  done
+  
+  # Se o FFmpeg terminou por erro, aguarda antes de reiniciar
+  if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
+    echo "[WARN] FFmpeg terminou inesperadamente. Reiniciando em 5 segundos..." >&2
+    sleep 5
+  fi
+  
+  rm -f "$FFMPEG_PID_FILE"
 done
