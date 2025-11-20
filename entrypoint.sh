@@ -43,8 +43,10 @@ AUDIO_BITRATE="${AUDIO_BITRATE:-160k}"
 AUDIO_SAMPLE_RATE="${AUDIO_SAMPLE_RATE:-44100}"
 FFMPEG_THREADS="${FFMPEG_THREADS:-2}"
 
-# Hora para encerrar e reiniciar a live (formato: HH, ex: 12)
+# Hora para encerrar e reiniciar a live (formato: HH, ex: 12, ou 0-23)
 RESTART_HOUR="${RESTART_HOUR:-12}"
+# Remove zero à esquerda se houver (ex: "09" vira "9") e valida como número
+RESTART_HOUR=$((10#$RESTART_HOUR))
 
 build_rtmp_url() {
   [[ -z "${YOUTUBE_STREAM_KEY:-}" ]] && return 1
@@ -203,12 +205,23 @@ select_video() {
   echo "$video_file"
 }
 
-# Verifica se é hora de reiniciar (12h)
+# Verifica se é hora de reiniciar
 should_restart() {
   local current_hour=$(date +%H)
   local current_minute=$(date +%M)
-  # Reinicia se for a hora configurada e estiver nos primeiros 5 minutos (para garantir que capture)
-  [[ "$current_hour" == "$RESTART_HOUR" ]] && [[ "$current_minute" -lt 5 ]]
+  
+  # Remove zero à esquerda para comparação (ex: "09" vira "9")
+  current_hour=$((10#$current_hour))
+  local restart_hour=$((10#$RESTART_HOUR))
+  current_minute=$((10#$current_minute))
+  
+  # Reinicia se for exatamente a hora configurada e estiver nos primeiros 2 minutos
+  # Isso garante que capture a hora mesmo se houver pequeno atraso
+  if [[ $current_hour -eq $restart_hour ]] && [[ $current_minute -lt 2 ]]; then
+    return 0
+  fi
+  
+  return 1
 }
 
 # Encerra o FFmpeg graciosamente
@@ -297,10 +310,11 @@ while true; do
   fi
   
   # Verifica se é hora de reiniciar
-  if should_restart && [[ "$LAST_RESTART_TIME" != "$(date +%H)" ]]; then
+  local current_datetime_hour=$(date '+%Y-%m-%d-%H')
+  if should_restart && [[ "$LAST_RESTART_TIME" != "$current_datetime_hour" ]]; then
     log "INFO" "Hora de reiniciar a live (${RESTART_HOUR}h)..."
     stop_ffmpeg
-    LAST_RESTART_TIME=$(date +%H)
+    LAST_RESTART_TIME="$current_datetime_hour"
     
     # Aguarda alguns segundos antes de reiniciar
     sleep 5
@@ -351,7 +365,9 @@ while true; do
     fi
     
     # Se for hora de reiniciar, sai do loop interno
-    if should_restart && [[ "$LAST_RESTART_TIME" != "$(date +%H)" ]]; then
+    local current_datetime_hour=$(date '+%Y-%m-%d-%H')
+    if should_restart && [[ "$LAST_RESTART_TIME" != "$current_datetime_hour" ]]; then
+      log "INFO" "Detectada hora de reinício durante monitoramento"
       break
     fi
   done
