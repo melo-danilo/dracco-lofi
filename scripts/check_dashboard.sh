@@ -247,8 +247,9 @@ echo "=========================================="
 
 # Verificar status geral
 if [ "$DOCKER_MODE" = "swarm" ]; then
-    SERVICE_STATUS=$(docker service ls --format "{{.Name}}\t{{.Replicas}}" --filter "name=${SWARM_SERVICE}" 2>/dev/null | grep -c "1/1" || echo "0")
-    if [ "$SERVICE_STATUS" -gt 0 ]; then
+    SERVICE_STATUS=$(docker service ls --format "{{.Replicas}}" --filter "name=${SWARM_SERVICE}" 2>/dev/null | grep -c "1/1" || echo "0")
+    SERVICE_STATUS=$(echo "$SERVICE_STATUS" | tr -d '[:space:]')
+    if [ -n "$SERVICE_STATUS" ] && [ "$SERVICE_STATUS" -gt 0 ] 2>/dev/null; then
         echo "✅ Serviço ${SWARM_SERVICE} está rodando"
     else
         echo "❌ Serviço ${SWARM_SERVICE} NÃO está rodando"
