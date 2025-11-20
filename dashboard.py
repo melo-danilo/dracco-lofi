@@ -216,6 +216,32 @@ def restart_channel(channel_name):
     
     return jsonify({'success': True, 'message': f'Comando de reinício enviado para {channel_name}'})
 
+def validate_config_value(key, value):
+    """
+    Valida valores de configuração antes de salvar.
+    Retorna (is_valid, error_message)
+    """
+    if key == 'RESTART_HOUR':
+        # RESTART_HOUR deve ser um inteiro entre 0-23
+        # É usado em arithmetic expansion no entrypoint.sh, então deve ser numérico
+        try:
+            hour = int(value)
+            if hour < 0 or hour > 23:
+                return False, f'RESTART_HOUR deve ser um número entre 0 e 23, recebido: {value}'
+        except (ValueError, TypeError):
+            return False, f'RESTART_HOUR deve ser um número inteiro entre 0 e 23, recebido: {value}'
+    
+    elif key == 'VIDEO_FPS':
+        # VIDEO_FPS deve ser um número inteiro válido
+        try:
+            fps = int(value)
+            if fps < 1 or fps > 120:
+                return False, f'VIDEO_FPS deve ser um número entre 1 e 120, recebido: {value}'
+        except (ValueError, TypeError):
+            return False, f'VIDEO_FPS deve ser um número inteiro, recebido: {value}'
+    
+    return True, None
+
 @app.route('/api/channel/<channel_name>/config', methods=['GET', 'POST'])
 @login_required
 def channel_config(channel_name):
@@ -236,6 +262,12 @@ def channel_config(channel_name):
     else:  # POST
         data = request.get_json()
         updates = data.get('updates', {})
+        
+        # Valida todos os valores antes de salvar
+        for key, value in updates.items():
+            is_valid, error_message = validate_config_value(key, value)
+            if not is_valid:
+                return jsonify({'success': False, 'error': error_message}), 400
         
         # Lê configuração atual
         lines = []
