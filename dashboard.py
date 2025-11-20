@@ -203,7 +203,22 @@ def get_channel_status_endpoint(channel_name):
 def stop_channel(channel_name):
     """Encerra a live de um canal"""
     control_file = CONTROL_DIR / f"{channel_name}_stop"
+    
+    # Garante que o diretório existe
+    CONTROL_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Remove arquivo de restart se existir (para evitar conflito)
+    restart_file = CONTROL_DIR / f"{channel_name}_restart"
+    if restart_file.exists():
+        restart_file.unlink()
+    
+    # Cria o arquivo de stop
     control_file.touch()
+    
+    # Força escrita no disco
+    os.sync()
+    
+    app.logger.info(f"Arquivo de stop criado: {control_file}")
     
     return jsonify({'success': True, 'message': f'Comando de encerramento enviado para {channel_name}'})
 
@@ -215,6 +230,9 @@ def restart_channel(channel_name):
     stop_file = CONTROL_DIR / f"{channel_name}_stop"
     restart_file = CONTROL_DIR / f"{channel_name}_restart"
     
+    # Garante que o diretório existe
+    CONTROL_DIR.mkdir(parents=True, exist_ok=True)
+    
     # Remove arquivos antigos se existirem
     if stop_file.exists():
         stop_file.unlink()
@@ -223,6 +241,11 @@ def restart_channel(channel_name):
     
     # Cria arquivo de restart (o entrypoint.sh vai encerrar e reiniciar automaticamente)
     restart_file.touch()
+    
+    # Força escrita no disco
+    os.sync()
+    
+    app.logger.info(f"Arquivo de restart criado: {restart_file}")
     
     # Aguarda um pouco para garantir que o comando foi processado
     time.sleep(0.5)
