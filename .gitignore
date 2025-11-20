@@ -1,13 +1,48 @@
+# Diretórios de runtime
 logs/
 stats/
 control/
-*.log
 __pycache__/
+
+# Arquivos Python
 *.pyc
 *.pyo
 *.pyd
+*.py[cod]
+*$py.class
 .Python
+
+# Ambientes virtuais
 env/
 venv/
 .venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs
+*.log
+*.log.*
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Arquivos temporários
+*.tmp
+*.temp
+.cache/
+
+# Arquivos de configuração sensíveis (não commitar chaves reais)
+config/*.env
+!config/example.env
 

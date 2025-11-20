@@ -30,4 +30,4 @@ jobs:
         script: |
           git config --global --add safe.directory /root/dracco-stack
           cd /root/dracco-stack
-          bash deploy.sh
+          bash scripts/deploy.sh

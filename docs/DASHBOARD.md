@@ -60,16 +60,6 @@ O dashboard estará disponível em: **http://localhost:5000**
 - **Reiniciar Live**: Encerra e reinicia a live imediatamente
 - **Salvar Configuração**: Aplica novas configurações (requer reinício)
 
-## Estrutura de Arquivos
-
-```
-/app
-├── logs/          # Logs de cada canal
-├── stats/         # Estatísticas em JSON
-├── control/       # Arquivos de controle (stop, restart, reload)
-└── config/        # Arquivos de configuração (.env)
-```
-
 ## Segurança
 
 ⚠️ **IMPORTANTE**: Altere as credenciais padrão em produção!
@@ -82,15 +72,5 @@ Recomendações:
 
 ## Troubleshooting
 
-### Dashboard não carrega
-- Verifique se o container está rodando: `docker-compose ps`
-- Verifique os logs: `docker-compose logs dashboard`
-
-### Logs não aparecem
-- Verifique se o diretório `/app/logs` existe e tem permissões
-- Verifique se o canal está gerando logs
-
-### Configurações não são aplicadas
-- As configurações são salvas, mas podem precisar de reinício manual
-- Use o botão "Reiniciar Live" para aplicar mudanças
+Veja [TROUBLESHOOTING.md](TROUBLESHOOTING.md) para soluções detalhadas de problemas comuns.
 
