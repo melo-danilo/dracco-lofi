@@ -49,8 +49,10 @@ function createChannelCard(channel) {
     card.className = 'channel-card';
     card.onclick = () => showChannelDetails(channel.name);
     
-    const statusClass = channel.status.running ? 'running' : 'stopped';
-    const statusText = channel.status.running ? 'Online' : 'Offline';
+    // Usa 'streaming' se disponível, senão usa 'running'
+    const isOnline = channel.status.streaming !== undefined ? channel.status.streaming : channel.status.running;
+    const statusClass = isOnline ? 'running' : 'stopped';
+    const statusText = isOnline ? 'Online' : 'Offline';
     
     card.innerHTML = `
         <div class="channel-name">${channel.name}</div>
@@ -144,7 +146,20 @@ async function loadChannelStatus() {
         const response = await fetch(`/api/channel/${currentChannel}/status`);
         const status = await response.json();
         
-        document.getElementById('statusValue').textContent = status.running ? '🟢 Online' : '🔴 Offline';
+        // Usa 'streaming' se disponível para determinar status real
+        const isOnline = status.streaming !== undefined ? status.streaming : status.running;
+        const statusEmoji = isOnline ? '🟢' : '🔴';
+        const statusText = isOnline ? 'Online' : 'Offline';
+        
+        // Adiciona informação adicional se processo está rodando mas não transmitindo
+        let statusDetail = '';
+        if (status.running && !isOnline) {
+            statusDetail = ' (Processo rodando, mas não transmitindo)';
+        } else if (status.last_activity) {
+            statusDetail = ` (Última atividade: ${status.last_activity})`;
+        }
+        
+        document.getElementById('statusValue').textContent = `${statusEmoji} ${statusText}${statusDetail}`;
         document.getElementById('uptimeValue').textContent = formatUptime(status.uptime || 0);
         document.getElementById('currentVideo').textContent = status.current_video || 'N/A';
         document.getElementById('nextRestart').textContent = status.next_restart || 'N/A';
