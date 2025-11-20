@@ -8,7 +8,12 @@ WORKDIR /app
 
 COPY entrypoint.sh /app/entrypoint.sh
 COPY server.py /app/server.py
+COPY dashboard.py /app/dashboard.py
+COPY requirements.txt /app/requirements.txt
+COPY templates /app/templates
+COPY static /app/static
 
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh && \
+    pip install --no-cache-dir -r requirements.txt
 
 CMD ["/app/entrypoint.sh"]

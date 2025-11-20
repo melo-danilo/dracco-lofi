@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Lo-Fi Lives</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="dashboard-header">
+            <div class="header-left">
+                <h1>🎵 Dashboard Lo-Fi</h1>
+                <span class="user-info">Olá, <strong id="username">{{ session.username }}</strong></span>
+            </div>
+            <div class="header-right">
+                <div class="server-info" id="serverInfo" style="display: none;">
+                    <span class="ip-label">IP Público:</span>
+                    <a href="#" id="publicIpLink" target="_blank" class="ip-link">Carregando...</a>
+                    <button class="btn-refresh-ip" onclick="loadServerInfo()" title="Atualizar IP">🔄</button>
+                </div>
+                <a href="/logout" class="btn-logout">Sair</a>
+            </div>
+        </header>
+        
+        <main class="dashboard-main">
+            <div class="channels-section">
+                <div class="section-header">
+                    <h2>Canais</h2>
+                    <button class="btn-refresh" onclick="loadChannels()">🔄 Atualizar</button>
+                </div>
+                
+                <div id="channelsList" class="channels-grid">
+                    <!-- Canais serão carregados aqui -->
+                </div>
+            </div>
+            
+            <div class="details-section" id="detailsSection" style="display: none;">
+                <div class="section-header">
+                    <h2 id="channelTitle">Detalhes do Canal</h2>
+                    <button class="btn-close" onclick="closeDetails()">✕</button>
+                </div>
+                
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="showTab('status')">Status</button>
+                    <button class="tab-btn" onclick="showTab('config')">Configuração</button>
+                    <button class="tab-btn" onclick="showTab('logs')">Logs</button>
+                </div>
+                
+                <div class="tab-content" id="tabStatus">
+                    <div class="status-grid">
+                        <div class="status-card">
+                            <div class="status-label">Status</div>
+                            <div class="status-value" id="statusValue">-</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-label">Tempo Online</div>
+                            <div class="status-value" id="uptimeValue">-</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-label">Vídeo Atual</div>
+                            <div class="status-value" id="currentVideo">-</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-label">Próximo Reinício</div>
+                            <div class="status-value" id="nextRestart">-</div>
+                        </div>
+                    </div>
+                    
+                    <div class="actions">
+                        <button class="btn-action btn-stop" onclick="stopChannel()">⏹ Encerrar Live</button>
+                        <button class="btn-action btn-restart" onclick="restartChannel()">🔄 Reiniciar Live</button>
+                    </div>
+                </div>
+                
+                <div class="tab-content" id="tabConfig" style="display: none;">
+                    <form id="configForm" class="config-form">
+                        <div class="form-group">
+                            <label>Hora de Reinício (0-23)</label>
+                            <input type="number" id="restartHour" min="0" max="23" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Bitrate de Vídeo</label>
+                            <input type="text" id="videoBitrate" placeholder="4500k">
+                        </div>
+                        <div class="form-group">
+                            <label>Bitrate de Áudio</label>
+                            <input type="text" id="audioBitrate" placeholder="160k">
+                        </div>
+                        <div class="form-group">
+                            <label>FPS</label>
+                            <input type="number" id="videoFps" min="24" max="60" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Resolução</label>
+                            <input type="text" id="videoScale" placeholder="1920:1080">
+                        </div>
+                        <button type="submit" class="btn-save">💾 Salvar Configuração</button>
+                    </form>
+                </div>
+                
+                <div class="tab-content" id="tabLogs" style="display: none;">
+                    <div class="logs-container">
+                        <div class="logs-header">
+                            <span>Logs em tempo real</span>
+                            <button class="btn-clear" onclick="clearLogs()">Limpar</button>
+                        </div>
+                        <div id="logsContent" class="logs-content"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
+

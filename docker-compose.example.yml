@@ -5,9 +5,10 @@ services:
     build: .
     command: python3 /app/dashboard.py
     environment:
-      DASHBOARD_USER: ${DASHBOARD_USER:-admin}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-admin123}
-      DASHBOARD_SECRET_KEY: ${DASHBOARD_SECRET_KEY:-change-me-in-production}
+      # Altere estas credenciais em produção!
+      DASHBOARD_USER: admin
+      DASHBOARD_PASSWORD: admin123
+      DASHBOARD_SECRET_KEY: change-me-in-production-$(openssl rand -hex 16)
     volumes:
       - ./config:/app/config:rw
       - ./video:/app/video:ro
@@ -47,3 +48,4 @@ services:
       - ./stats:/app/stats:rw
     ports:
       - "8082:8080"
+
