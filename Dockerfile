@@ -1,7 +1,11 @@
 FROM python:3.11-slim
 
+# Configura debconf para modo não-interativo (suprime avisos)
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBCONF_NONINTERACTIVE_SEEN=true
+
 RUN apt-get update && \
-    apt-get install -y ffmpeg curl && \
+    apt-get install -y --no-install-recommends ffmpeg curl && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
