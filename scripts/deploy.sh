@@ -55,9 +55,50 @@ else
     exit 1
 fi
 
-# Aguardar um pouco para evitar erros de "update out of sequence"
-echo "Aguardando atualizações pendentes..."
-sleep 5
+# Função para aguardar atualizações pendentes dos serviços
+wait_for_pending_updates() {
+    local max_wait=180  # Máximo de 3 minutos
+    local waited=0
+    
+    echo "Verificando atualizações pendentes nos serviços..."
+    
+    while [ $waited -lt $max_wait ]; do
+        local pending_updates=0
+        
+        # Verifica cada serviço do stack
+        for service in lofi_dashboard lofi_cozy lofi_dracco; do
+            if docker service ls --format "{{.Name}}" 2>/dev/null | grep -q "^${service}$"; then
+                # Verifica se há atualizações pendentes
+                local update_status=$(docker service inspect "$service" --format '{{.UpdateStatus.State}}' 2>/dev/null || echo "completed")
+                
+                # Verifica também tasks em estado de atualização
+                local updating_tasks=$(docker service ps "$service" --filter "desired-state=running" --format "{{.CurrentState}}" 2>/dev/null | grep -c "Preparing\|Starting\|Ready" || echo "0")
+                
+                if [[ "$update_status" == "updating" ]] || [[ "$update_status" == "paused" ]] || [[ "$updating_tasks" -gt 0 ]]; then
+                    echo "   ⏳ Serviço $service está em atualização (status: $update_status, tasks: $updating_tasks)..."
+                    pending_updates=$((pending_updates + 1))
+                fi
+            fi
+        done
+        
+        if [ $pending_updates -eq 0 ]; then
+            echo "✅ Nenhuma atualização pendente"
+            return 0
+        fi
+        
+        if [ $((waited % 15)) -eq 0 ]; then
+            echo "   Aguardando atualizações pendentes ($pending_updates serviço(s))... ($waited/$max_wait segundos)"
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+    
+    echo "⚠️  Timeout aguardando atualizações pendentes. Continuando mesmo assim..."
+    return 1
+}
+
+# Aguardar atualizações pendentes antes de fazer deploy
+wait_for_pending_updates
 
 # Remover o serviço do dashboard se existir (para forçar uso da nova imagem)
 if docker service ls --format "{{.Name}}" 2>/dev/null | grep -q "^lofi_dashboard$"; then
@@ -95,9 +136,56 @@ fi
 echo "Atualizando docker-stack.yml para usar tag única..."
 sed -i.bak "s|image: melodanilo/dracco-lofi:latest|image: melodanilo/dracco-lofi:$TIMESTAMP_TAG|g" docker-stack.yml
 
+# Aguardar novamente antes do deploy final
+echo "Aguardando um pouco mais antes do deploy final..."
+sleep 3
+
+# Verificar novamente se há atualizações pendentes
+wait_for_pending_updates
+
 # Fazer deploy do stack
 echo "Fazendo deploy do stack..."
-docker stack deploy -c docker-stack.yml lofi
+DEPLOY_OUTPUT=$(docker stack deploy -c docker-stack.yml lofi 2>&1)
+DEPLOY_EXIT=$?
+
+# Verifica se houve erro "update out of sequence"
+if echo "$DEPLOY_OUTPUT" | grep -qi "update out of sequence"; then
+    echo "⚠️  Erro 'update out of sequence' detectado"
+    echo "   Aguardando mais tempo e tentando novamente..."
+    
+    # Aguarda mais tempo
+    sleep 15
+    wait_for_pending_updates
+    
+    # Tenta novamente
+    echo "Tentando deploy novamente..."
+    DEPLOY_OUTPUT2=$(docker stack deploy -c docker-stack.yml lofi 2>&1)
+    DEPLOY_EXIT2=$?
+    
+    if echo "$DEPLOY_OUTPUT2" | grep -qi "update out of sequence"; then
+        echo "❌ Erro 'update out of sequence' persiste"
+        echo "   Isso geralmente significa que há uma atualização em andamento"
+        echo "   Aguarde alguns minutos e tente novamente, ou execute:"
+        echo "   docker service update --force lofi_dracco"
+        echo "   docker service update --force lofi_cozy"
+        exit 1
+    elif [ $DEPLOY_EXIT2 -eq 0 ]; then
+        echo "✅ Deploy bem-sucedido na segunda tentativa"
+    else
+        echo "⚠️  Deploy retornou código $DEPLOY_EXIT2"
+        echo "   Output: $DEPLOY_OUTPUT2"
+    fi
+elif [ $DEPLOY_EXIT -eq 0 ]; then
+    echo "✅ Deploy iniciado com sucesso"
+else
+    # Verifica se é apenas o aviso sobre --detach
+    if echo "$DEPLOY_OUTPUT" | grep -qi "detach"; then
+        echo "✅ Deploy iniciado (aviso sobre detach ignorado)"
+    else
+        echo "⚠️  Deploy retornou código $DEPLOY_EXIT"
+        echo "   Output: $DEPLOY_OUTPUT"
+    fi
+fi
 
 # Restaurar docker-stack.yml original
 echo "Restaurando docker-stack.yml original..."
