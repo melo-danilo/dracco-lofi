@@ -441,22 +441,39 @@ def get_cached_public_ip():
     return None
 
 def get_channel_status(channel_name):
-    """Obtém status de um canal"""
+    """Obtém status de um canal com verificação robusta"""
     pid_file = Path(f'/app/ffmpeg_{channel_name}.pid')
     # Também verifica o caminho padrão usado pelo entrypoint
     if not pid_file.exists():
         pid_file = Path(f'/app/ffmpeg.pid')
     stats_file = STATS_DIR / f"{channel_name}.json"
+    log_file = LOG_DIR / f"{channel_name}.log"
     
     status = {
         'name': channel_name,
         'running': False,
         'pid': None,
         'uptime': 0,
-        'current_video': 'N/A'
+        'current_video': 'N/A',
+        'streaming': False,  # Indica se está realmente transmitindo
+        'last_activity': None
     }
     
-    # Verifica se o processo está rodando
+    # Primeiro, carrega estatísticas do arquivo (atualizado pelo entrypoint)
+    if stats_file.exists():
+        try:
+            with open(stats_file, 'r') as f:
+                stats = json.load(f)
+                # O entrypoint.sh já atualiza o status como "running" ou "stopped"
+                if stats.get('status') == 'running':
+                    status['running'] = True
+                status.update(stats)
+        except:
+            pass
+    
+    # Verifica se o processo está rodando (verificação adicional)
+    process_running = False
+    pid = None
     if pid_file.exists():
         try:
             with open(pid_file, 'r') as f:
@@ -464,21 +481,89 @@ def get_channel_status(channel_name):
                 # Verifica se o processo existe
                 try:
                     os.kill(pid, 0)
-                    status['running'] = True
+                    process_running = True
                     status['pid'] = pid
                 except OSError:
-                    status['running'] = False
+                    process_running = False
         except:
-            status['running'] = False
+            process_running = False
     
-    # Carrega estatísticas
-    if stats_file.exists():
+    # Se o stats diz que está running mas o processo não existe, corrige
+    if status.get('status') == 'running' and not process_running:
+        status['running'] = False
+        status['streaming'] = False
+    elif process_running:
+        status['running'] = True
+    
+    # Verifica logs recentes para confirmar transmissão ativa
+    if log_file.exists() and status['running']:
         try:
-            with open(stats_file, 'r') as f:
-                stats = json.load(f)
-                status.update(stats)
-        except:
-            pass
+            # Lê as últimas 50 linhas do log
+            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+                recent_lines = lines[-50:] if len(lines) > 50 else lines
+                
+                # Procura por indicadores de transmissão ativa
+                streaming_indicators = [
+                    'Streaming to',
+                    'rtmp://',
+                    'frame=',
+                    'fps=',
+                    'bitrate=',
+                    'speed=',
+                    '[INFO] Stream iniciado',
+                    '[INFO] Iniciando stream'
+                ]
+                
+                # Procura por erros recentes
+                error_indicators = [
+                    'ERROR',
+                    'Error',
+                    'failed',
+                    'Failed',
+                    'Connection refused',
+                    'Connection timed out',
+                    'Network is unreachable'
+                ]
+                
+                has_streaming_activity = False
+                has_recent_errors = False
+                last_activity_time = None
+                
+                for line in reversed(recent_lines):
+                    # Verifica atividade de transmissão (últimas 2 minutos)
+                    if any(indicator in line for indicator in streaming_indicators):
+                        has_streaming_activity = True
+                        # Tenta extrair timestamp
+                        if '[' in line and ']' in line:
+                            try:
+                                timestamp_str = line.split('[')[1].split(']')[0]
+                                last_activity_time = timestamp_str
+                            except:
+                                pass
+                    
+                    # Verifica erros recentes (últimas 10 linhas)
+                    if len(recent_lines) - recent_lines.index(line) <= 10:
+                        if any(indicator in line for indicator in error_indicators):
+                            has_recent_errors = True
+                
+                # Se há atividade de transmissão e não há erros recentes, está transmitindo
+                if has_streaming_activity and not has_recent_errors:
+                    status['streaming'] = True
+                elif has_recent_errors:
+                    status['streaming'] = False
+                    status['running'] = False  # Se há erros, considera offline
+                
+                if last_activity_time:
+                    status['last_activity'] = last_activity_time
+                    
+        except Exception as e:
+            # Se não conseguir ler logs, assume que está rodando se o processo existe
+            status['streaming'] = status['running']
+    
+    # Se não há arquivo de log mas o processo está rodando, assume que está transmitindo
+    if not log_file.exists() and status['running']:
+        status['streaming'] = True
     
     return status
 
