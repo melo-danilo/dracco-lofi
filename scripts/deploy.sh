@@ -34,6 +34,10 @@ docker rmi melodanilo/dracco-lofi:latest 2>/dev/null || true
 echo "Fazendo build da imagem Docker (sem cache)..."
 docker build --no-cache -t melodanilo/dracco-lofi:latest .
 
+# Obter o SHA da imagem recém-construída
+IMAGE_SHA=$(docker inspect melodanilo/dracco-lofi:latest --format '{{.Id}}')
+echo "SHA da imagem: $IMAGE_SHA"
+
 # Verificar se o arquivo dashboard.py está na imagem
 echo "Verificando se dashboard.py está na imagem..."
 if docker run --rm melodanilo/dracco-lofi:latest test -f /app/dashboard.py; then
@@ -57,6 +61,15 @@ if docker service ls --format "{{.Name}}" 2>/dev/null | grep -q "^lofi_dashboard
     docker service rm lofi_dashboard || true
     sleep 3
 fi
+
+# Forçar o Docker Swarm a usar a nova imagem removendo imagens antigas
+echo "Limpando imagens antigas do mesmo nome..."
+docker images melodanilo/dracco-lofi --format "{{.ID}}" | while read img_id; do
+    if [ "$img_id" != "$(docker inspect melodanilo/dracco-lofi:latest --format '{{.Id}}' 2>/dev/null)" ]; then
+        echo "Removendo imagem antiga: $img_id"
+        docker rmi $img_id 2>/dev/null || true
+    fi
+done
 
 # Fazer deploy do stack
 echo "Fazendo deploy do stack..."
