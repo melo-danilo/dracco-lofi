@@ -121,15 +121,20 @@ check_control_commands() {
   local restart_file="$CONTROL_DIR/${CHANNEL_NAME}_restart"
   local reload_file="$CONTROL_DIR/${CHANNEL_NAME}_reload"
   
+  # Verifica se o diretório de controle existe
+  if [[ ! -d "$CONTROL_DIR" ]]; then
+    mkdir -p "$CONTROL_DIR"
+  fi
+  
   if [[ -f "$stop_file" ]]; then
-    log "INFO" "Comando de encerramento recebido"
+    log "INFO" "Comando de encerramento recebido (arquivo: $stop_file)"
     rm -f "$stop_file"
     stop_ffmpeg
     return 1  # Stop - encerra completamente
   fi
   
   if [[ -f "$restart_file" ]]; then
-    log "INFO" "Comando de reinício recebido - encerrando transmissão atual..."
+    log "INFO" "Comando de reinício recebido - encerrando transmissão atual... (arquivo: $restart_file)"
     rm -f "$restart_file"
     stop_ffmpeg
     # Aguarda alguns segundos para garantir que a transmissão foi completamente encerrada
@@ -228,32 +233,83 @@ should_restart() {
   return 1
 }
 
-# Encerra o FFmpeg graciosamente
+# Encerra o FFmpeg graciosamente e força encerramento de processos filhos
 stop_ffmpeg() {
   if [[ -f "$FFMPEG_PID_FILE" ]]; then
     local pid=$(cat "$FFMPEG_PID_FILE" 2>/dev/null || echo "")
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-      echo "[INFO] Encerrando stream atual (PID: $pid)..." >&2
+      log "INFO" "Encerrando stream atual (PID: $pid)..."
+      
       # Envia SIGTERM para encerrar graciosamente
       kill -TERM "$pid" 2>/dev/null || true
       
-      # Aguarda até 30 segundos para o processo terminar
+      # Aguarda até 10 segundos para o processo terminar
       local count=0
-      while kill -0 "$pid" 2>/dev/null && [[ $count -lt 30 ]]; do
+      while kill -0 "$pid" 2>/dev/null && [[ $count -lt 10 ]]; do
         sleep 1
         count=$((count + 1))
       done
       
       # Se ainda estiver rodando, força o encerramento
       if kill -0 "$pid" 2>/dev/null; then
-        echo "[WARN] Forçando encerramento do FFmpeg..." >&2
+        log "WARN" "Forçando encerramento do FFmpeg (PID: $pid)..."
+        # Mata o processo e todos os seus filhos
+        pkill -TERM -P "$pid" 2>/dev/null || true
+        sleep 1
         kill -KILL "$pid" 2>/dev/null || true
+        pkill -KILL -P "$pid" 2>/dev/null || true
+      fi
+      
+      # Aguarda um pouco mais para garantir que todos os processos terminaram
+      sleep 2
+      
+      # Verifica se ainda há processos FFmpeg rodando para este canal
+      local remaining_pids=$(pgrep -f "ffmpeg.*${CHANNEL_NAME}" 2>/dev/null || echo "")
+      if [[ -n "$remaining_pids" ]]; then
+        log "WARN" "Encerrando processos FFmpeg remanescentes: $remaining_pids"
+        echo "$remaining_pids" | xargs kill -KILL 2>/dev/null || true
+        sleep 1
       fi
       
       rm -f "$FFMPEG_PID_FILE"
-      echo "[INFO] Stream encerrado." >&2
-      sleep 2
+      log "INFO" "Stream completamente encerrado."
+    else
+      # Se o PID não existe ou não está rodando, limpa o arquivo mesmo assim
+      rm -f "$FFMPEG_PID_FILE"
     fi
+  fi
+  
+  # Garante que não há processos FFmpeg órfãos rodando para esta URL RTMP
+  if [[ -n "${RTMP_URL:-}" ]]; then
+    local orphan_pids=$(pgrep -f "ffmpeg.*${RTMP_URL}" 2>/dev/null || echo "")
+    if [[ -n "$orphan_pids" ]]; then
+      log "WARN" "Encerrando processos FFmpeg órfãos para RTMP: $orphan_pids"
+      echo "$orphan_pids" | xargs kill -KILL 2>/dev/null || true
+      sleep 1
+    fi
+    
+    # Também verifica processos FFmpeg que estão enviando para o mesmo stream key
+    if [[ -n "${YOUTUBE_STREAM_KEY:-}" ]]; then
+      local stream_key_pids=$(pgrep -f "ffmpeg.*${YOUTUBE_STREAM_KEY}" 2>/dev/null || echo "")
+      if [[ -n "$stream_key_pids" ]]; then
+        log "WARN" "Encerrando processos FFmpeg com mesmo stream key: $stream_key_pids"
+        echo "$stream_key_pids" | xargs kill -KILL 2>/dev/null || true
+        sleep 1
+      fi
+    fi
+  fi
+  
+  # Verificação final: garante que não há nenhum processo FFmpeg relacionado
+  local all_ffmpeg_pids=$(pgrep -f "^ffmpeg.*flv.*rtmp" 2>/dev/null || echo "")
+  if [[ -n "$all_ffmpeg_pids" ]]; then
+    # Verifica se algum desses processos está relacionado a este canal
+    for check_pid in $all_ffmpeg_pids; do
+      if ps -p "$check_pid" -o cmd= 2>/dev/null | grep -q "${CHANNEL_NAME}\|${RTMP_URL}"; then
+        log "WARN" "Encerrando processo FFmpeg relacionado encontrado: $check_pid"
+        kill -KILL "$check_pid" 2>/dev/null || true
+      fi
+    done
+    sleep 1
   fi
 }
 
@@ -303,17 +359,22 @@ log "INFO" "Iniciando sistema de streaming para canal: $CHANNEL_NAME"
 
 # Loop principal
 while true; do
-  # Verifica comandos de controle
+  # Verifica comandos de controle ANTES de iniciar nova transmissão
   check_control_commands
   local control_result=$?
   
   if [[ $control_result -eq 1 ]]; then
     # Comando de stop foi recebido - encerra completamente
-    log "INFO" "Live encerrada por comando"
+    log "INFO" "Live encerrada por comando de stop"
+    # Garante que o FFmpeg está encerrado
+    stop_ffmpeg
     break
   elif [[ $control_result -eq 2 ]]; then
     # Comando de restart foi recebido - continua o loop para reiniciar
     # O stop_ffmpeg já foi chamado e aguardou 3 segundos
+    # Aguarda mais um pouco para garantir encerramento completo antes de reiniciar
+    sleep 2
+    log "INFO" "Reiniciando live - iniciando nova transmissão..."
     # Continua o loop para iniciar nova transmissão (como YouTube Studio)
   fi
   
@@ -336,6 +397,9 @@ while true; do
     sleep 10
     continue
   fi
+  
+  # Garante que não há processos FFmpeg rodando antes de iniciar novo
+  stop_ffmpeg
   
   log "INFO" "Iniciando stream com vídeo: $(basename "$VIDEO_FILE")"
   STREAM_START_TIME=$(date +%s)
@@ -360,29 +424,42 @@ while true; do
   echo "$FFMPEG_PID" > "$FFMPEG_PID_FILE"
   log "INFO" "FFmpeg iniciado com PID: $FFMPEG_PID"
   
-  # Monitora o processo FFmpeg e verifica a hora periodicamente
+  # Monitora o processo FFmpeg e verifica comandos de controle frequentemente
   while kill -0 "$FFMPEG_PID" 2>/dev/null; do
-    sleep 60  # Verifica a cada minuto
+    # Verifica comandos de controle a cada 5 segundos (mais responsivo)
+    for i in {1..12}; do  # 12 x 5 segundos = 60 segundos total
+      sleep 5
+      
+      # Verifica comandos de controle
+      check_control_commands
+      local control_result=$?
+      
+      if [[ $control_result -eq 1 ]]; then
+        # Stop - encerra completamente
+        stop_ffmpeg
+        break 2  # Sai dos dois loops (for e while)
+      elif [[ $control_result -eq 2 ]]; then
+        # Restart - encerra e sai do loop interno para reiniciar
+        stop_ffmpeg
+        # Aguarda mais um pouco para garantir encerramento completo
+        sleep 2
+        break 2  # Sai dos dois loops (for e while)
+      fi
+      
+      # Se o FFmpeg terminou, sai do loop interno
+      if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
+        break
+      fi
+    done
     
-    # Atualiza estatísticas
+    # Atualiza estatísticas a cada minuto (após 12 verificações de 5 segundos)
     update_stats
-    
-    # Verifica comandos de controle
-    check_control_commands
-    local control_result=$?
-    
-    if [[ $control_result -eq 1 ]]; then
-      # Stop - encerra completamente
-      break
-    elif [[ $control_result -eq 2 ]]; then
-      # Restart - sai do loop interno para reiniciar
-      break
-    fi
     
     # Se for hora de reiniciar, sai do loop interno
     local current_datetime_hour=$(date '+%Y-%m-%d-%H')
     if should_restart && [[ "$LAST_RESTART_TIME" != "$current_datetime_hour" ]]; then
       log "INFO" "Detectada hora de reinício durante monitoramento"
+      stop_ffmpeg
       break
     fi
   done
