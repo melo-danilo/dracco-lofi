@@ -3,23 +3,16 @@ name: Deploy Stack
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    types: [closed]
-    branches: [ "main" ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Só executa se for push para main OU PR mergeado em main
-    if: |
-      github.event_name == 'push' || 
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
     - name: Checkout
       uses: actions/checkout@v3
       with:
-        ref: main  # Sempre usa main, mesmo se disparado por PR
+        ref: main
 
     - name: Copiar arquivos para o servidor
       uses: appleboy/scp-action@v0.1.7
