@@ -74,7 +74,12 @@ wait_for_pending_updates() {
                 # Verifica também tasks em estado de atualização
                 local updating_tasks=$(docker service ps "$service" --filter "desired-state=running" --format "{{.CurrentState}}" 2>/dev/null | grep -c "Preparing\|Starting\|Ready" || echo "0")
                 
-                if [[ "$update_status" == "updating" ]] || [[ "$update_status" == "paused" ]] || [[ "$updating_tasks" -gt 0 ]]; then
+                # Garante que updating_tasks é um número válido (remove espaços e converte para número)
+                updating_tasks=$(echo "$updating_tasks" | tr -d '[:space:]')
+                updating_tasks=${updating_tasks:-0}  # Se vazio, usa 0
+                updating_tasks=$((10#$updating_tasks))  # Converte para número base 10
+                
+                if [[ "$update_status" == "updating" ]] || [[ "$update_status" == "paused" ]] || [[ $updating_tasks -gt 0 ]]; then
                     echo "   ⏳ Serviço $service está em atualização (status: $update_status, tasks: $updating_tasks)..."
                     pending_updates=$((pending_updates + 1))
                 fi
