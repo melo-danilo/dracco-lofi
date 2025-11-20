@@ -23,7 +23,14 @@ MP3_DIR="${MP3_DIR:-$APP_DIR/musicas}"
 VIDEO_DIR="${VIDEO_DIR:-$APP_DIR/video}"
 PLAYLIST_FILE="$APP_DIR/playlist_temp.mp3"
 CONCAT_LIST="$APP_DIR/concat_list.txt"
-FFMPEG_PID_FILE="$APP_DIR/ffmpeg.pid"
+FFMPEG_PID_FILE="$APP_DIR/ffmpeg_${CHANNEL_NAME}.pid"
+LOG_FILE="$APP_DIR/logs/${CHANNEL_NAME}.log"
+STATS_FILE="$APP_DIR/stats/${CHANNEL_NAME}.json"
+CONTROL_DIR="$APP_DIR/control"
+STREAM_START_TIME=""
+
+# Cria diretórios necessários
+mkdir -p "$APP_DIR/logs" "$APP_DIR/stats" "$CONTROL_DIR"
 
 VIDEO_SCALE="${VIDEO_SCALE:-1920:1080}"
 VIDEO_FPS="${VIDEO_FPS:-30}"
@@ -36,8 +43,10 @@ AUDIO_BITRATE="${AUDIO_BITRATE:-160k}"
 AUDIO_SAMPLE_RATE="${AUDIO_SAMPLE_RATE:-44100}"
 FFMPEG_THREADS="${FFMPEG_THREADS:-2}"
 
-# Hora para encerrar e reiniciar a live (formato: HH, ex: 12)
+# Hora para encerrar e reiniciar a live (formato: HH, ex: 12, ou 0-23)
 RESTART_HOUR="${RESTART_HOUR:-12}"
+# Remove zero à esquerda se houver (ex: "09" vira "9") e valida como número
+RESTART_HOUR=$((10#$RESTART_HOUR))
 
 build_rtmp_url() {
   [[ -z "${YOUTUBE_STREAM_KEY:-}" ]] && return 1
@@ -47,9 +56,96 @@ build_rtmp_url() {
   return 0
 }
 
+# Função para log
+log() {
+  local level="$1"
+  shift
+  local message="$*"
+  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+  echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+}
+
+# Função para atualizar estatísticas
+update_stats() {
+  local uptime=0
+  if [[ -n "$STREAM_START_TIME" ]] && [[ "$STREAM_START_TIME" =~ ^[0-9]+$ ]]; then
+    uptime=$(($(date +%s) - STREAM_START_TIME))
+  fi
+  
+  local status="stopped"
+  if [[ -f "$FFMPEG_PID_FILE" ]]; then
+    local pid=$(cat "$FFMPEG_PID_FILE" 2>/dev/null || echo "")
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      status="running"
+    fi
+  fi
+  
+  local current_video_name="N/A"
+  if [[ -n "${VIDEO_FILE:-}" ]] && [[ -f "${VIDEO_FILE}" ]]; then
+    current_video_name=$(basename "$VIDEO_FILE")
+  fi
+  
+  # Conta vídeos do canal
+  local video_count=0
+  shopt -s nullglob
+  local channel_videos=("$VIDEO_DIR/${CHANNEL_NAME}_"*.mp4)
+  shopt -u nullglob
+  video_count=${#channel_videos[@]}
+  
+  # Se não encontrou vídeos com padrão, verifica padrão antigo
+  if [[ $video_count -eq 0 ]] && [[ -f "$VIDEO_DIR/${CHANNEL_NAME}.mp4" ]]; then
+    video_count=1
+  fi
+  
+  cat > "$STATS_FILE" <<EOF
+{
+  "status": "$status",
+  "uptime": $uptime,
+  "current_video": "$current_video_name",
+  "video_count": $video_count,
+  "last_restart": "$(date '+%Y-%m-%dT%H:%M:%S%z')",
+  "next_restart": "N/A"
+}
+EOF
+}
+
 start_healthcheck_server() {
   python3 /app/server.py &>/dev/null &
   SERVER_PID=$!
+}
+
+# Verifica comandos de controle
+check_control_commands() {
+  local stop_file="$CONTROL_DIR/${CHANNEL_NAME}_stop"
+  local restart_file="$CONTROL_DIR/${CHANNEL_NAME}_restart"
+  local reload_file="$CONTROL_DIR/${CHANNEL_NAME}_reload"
+  
+  if [[ -f "$stop_file" ]]; then
+    log "INFO" "Comando de encerramento recebido"
+    rm -f "$stop_file"
+    stop_ffmpeg
+    return 1
+  fi
+  
+  if [[ -f "$restart_file" ]]; then
+    log "INFO" "Comando de reinício recebido"
+    rm -f "$restart_file"
+    stop_ffmpeg
+    sleep 2
+    return 1
+  fi
+  
+  if [[ -f "$reload_file" ]]; then
+    log "INFO" "Comando de recarregar configuração recebido"
+    rm -f "$reload_file"
+    # Recarrega configuração
+    set -a
+    source "$CHANNEL_CONFIG_FILE"
+    set +a
+    log "INFO" "Configuração recarregada"
+  fi
+  
+  return 0
 }
 
 # Função para selecionar o vídeo a ser usado
@@ -89,6 +185,7 @@ select_video() {
     # Se houver múltiplos vídeos do canal, rotaciona entre eles
     local state_file="$APP_DIR/video_state_${CHANNEL_NAME}.txt"
     local current_index=0
+    local video_count=${#channel_videos[@]}
     
     if [[ -f "$state_file" ]]; then
       current_index=$(cat "$state_file" 2>/dev/null || echo "0")
@@ -96,24 +193,35 @@ select_video() {
     fi
     
     # Rotaciona entre os vídeos disponíveis do canal
-    current_index=$((current_index % ${#channel_videos[@]}))
+    current_index=$((current_index % video_count))
     video_file="${channel_videos[$current_index]}"
     
     # Salva o índice para a próxima vez
     echo "$current_index" > "$state_file"
     
-    echo "[INFO] Selecionado vídeo: $(basename "$video_file") (${current_index}/${#channel_videos[@]})" >&2
+    echo "[INFO] Selecionado vídeo: $(basename "$video_file") (${current_index}/${video_count})" >&2
   fi
   
   echo "$video_file"
 }
 
-# Verifica se é hora de reiniciar (12h)
+# Verifica se é hora de reiniciar
 should_restart() {
   local current_hour=$(date +%H)
   local current_minute=$(date +%M)
-  # Reinicia se for a hora configurada e estiver nos primeiros 5 minutos (para garantir que capture)
-  [[ "$current_hour" == "$RESTART_HOUR" ]] && [[ "$current_minute" -lt 5 ]]
+  
+  # Remove zero à esquerda para comparação (ex: "09" vira "9")
+  current_hour=$((10#$current_hour))
+  local restart_hour=$((10#$RESTART_HOUR))
+  current_minute=$((10#$current_minute))
+  
+  # Reinicia se for exatamente a hora configurada e estiver nos primeiros 2 minutos
+  # Isso garante que capture a hora mesmo se houver pequeno atraso
+  if [[ $current_hour -eq $restart_hour ]] && [[ $current_minute -lt 2 ]]; then
+    return 0
+  fi
+  
+  return 1
 }
 
 # Encerra o FFmpeg graciosamente
@@ -187,13 +295,26 @@ generate_playlist
 # Variável para rastrear se já reiniciamos nesta hora
 LAST_RESTART_TIME=""
 
+log "INFO" "Iniciando sistema de streaming para canal: $CHANNEL_NAME"
+
 # Loop principal
 while true; do
+  # Verifica comandos de controle
+  if ! check_control_commands; then
+    # Comando de stop ou restart foi recebido
+    if [[ -f "$CONTROL_DIR/${CHANNEL_NAME}_stop" ]]; then
+      log "INFO" "Live encerrada por comando"
+      break
+    fi
+    # Se foi restart, continua o loop para reiniciar
+  fi
+  
   # Verifica se é hora de reiniciar
-  if should_restart && [[ "$LAST_RESTART_TIME" != "$(date +%H)" ]]; then
-    echo "[INFO] Hora de reiniciar a live (${RESTART_HOUR}h)..." >&2
+  local current_datetime_hour=$(date '+%Y-%m-%d-%H')
+  if should_restart && [[ "$LAST_RESTART_TIME" != "$current_datetime_hour" ]]; then
+    log "INFO" "Hora de reiniciar a live (${RESTART_HOUR}h)..."
     stop_ffmpeg
-    LAST_RESTART_TIME=$(date +%H)
+    LAST_RESTART_TIME="$current_datetime_hour"
     
     # Aguarda alguns segundos antes de reiniciar
     sleep 5
@@ -203,42 +324,62 @@ while true; do
   VIDEO_FILE=$(select_video)
   
   if [[ ! -f "$VIDEO_FILE" ]]; then
-    echo "Erro: vídeo não encontrado: $VIDEO_FILE" >&2
+    log "ERRO" "Vídeo não encontrado: $VIDEO_FILE"
     sleep 10
     continue
   fi
   
-  echo "[INFO] Iniciando stream com vídeo: $(basename "$VIDEO_FILE")" >&2
+  log "INFO" "Iniciando stream com vídeo: $(basename "$VIDEO_FILE")"
+  STREAM_START_TIME=$(date +%s)
+  update_stats
   
   # Inicia o FFmpeg em background e salva o PID
   if [[ "$PREVIEW" == "1" ]]; then
     ffmpeg -re -stream_loop -1 -i "$PLAYLIST_FILE" \
       -stream_loop -1 -i "$VIDEO_FILE" \
-      "${FF_ARGS[@]}" -f mp4 -y "/tmp/preview_${CHANNEL_NAME}.mp4" &
+      "${FF_ARGS[@]}" -f mp4 -y "/tmp/preview_${CHANNEL_NAME}.mp4" 2>&1 | while IFS= read -r line; do
+        log "FFMPEG" "$line"
+      done &
   else
     ffmpeg -re -stream_loop -1 -i "$PLAYLIST_FILE" \
       -stream_loop -1 -i "$VIDEO_FILE" \
-      "${FF_ARGS[@]}" -f flv "$RTMP_URL" &
+      "${FF_ARGS[@]}" -f flv "$RTMP_URL" 2>&1 | while IFS= read -r line; do
+        log "FFMPEG" "$line"
+      done &
   fi
   
   FFMPEG_PID=$!
   echo "$FFMPEG_PID" > "$FFMPEG_PID_FILE"
+  log "INFO" "FFmpeg iniciado com PID: $FFMPEG_PID"
   
   # Monitora o processo FFmpeg e verifica a hora periodicamente
   while kill -0 "$FFMPEG_PID" 2>/dev/null; do
     sleep 60  # Verifica a cada minuto
     
+    # Atualiza estatísticas
+    update_stats
+    
+    # Verifica comandos de controle
+    if ! check_control_commands; then
+      break
+    fi
+    
     # Se for hora de reiniciar, sai do loop interno
-    if should_restart && [[ "$LAST_RESTART_TIME" != "$(date +%H)" ]]; then
+    local current_datetime_hour=$(date '+%Y-%m-%d-%H')
+    if should_restart && [[ "$LAST_RESTART_TIME" != "$current_datetime_hour" ]]; then
+      log "INFO" "Detectada hora de reinício durante monitoramento"
       break
     fi
   done
   
   # Se o FFmpeg terminou por erro, aguarda antes de reiniciar
   if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
-    echo "[WARN] FFmpeg terminou inesperadamente. Reiniciando em 5 segundos..." >&2
+    log "WARN" "FFmpeg terminou inesperadamente. Reiniciando em 5 segundos..."
     sleep 5
   fi
   
   rm -f "$FFMPEG_PID_FILE"
+  update_stats
 done
+
+log "INFO" "Sistema encerrado"
