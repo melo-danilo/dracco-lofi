@@ -44,6 +44,7 @@
                 
                 <div class="tabs">
                     <button class="tab-btn active" onclick="showTab('status')">Status</button>
+                    <button class="tab-btn" onclick="showTab('preview')">Preview</button>
                     <button class="tab-btn" onclick="showTab('config')">Configuração</button>
                     <button class="tab-btn" onclick="showTab('logs')">Logs</button>
                 </div>
@@ -71,6 +72,19 @@
                     <div class="actions">
                         <button class="btn-action btn-stop" onclick="stopChannel()">⏹ Encerrar Live</button>
                         <button class="btn-action btn-restart" onclick="restartChannel()">🔄 Reiniciar Live</button>
+                    </div>
+                </div>
+                
+                <div class="tab-content" id="tabPreview" style="display: none;">
+                    <div class="preview-container">
+                        <div id="previewContent" class="preview-content">
+                            <div class="preview-placeholder">
+                                <p>Carregando preview...</p>
+                            </div>
+                        </div>
+                        <div class="preview-info">
+                            <p id="previewInfo" class="preview-info-text">Configure YOUTUBE_LIVE_URL ou YOUTUBE_CHANNEL_ID no arquivo de configuração para ver o preview.</p>
+                        </div>
                     </div>
                 </div>
                 

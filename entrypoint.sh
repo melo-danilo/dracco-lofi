@@ -115,6 +115,7 @@ start_healthcheck_server() {
 }
 
 # Verifica comandos de controle
+# Retorna: 0 = continua normal, 1 = stop (encerra), 2 = restart (reinicia)
 check_control_commands() {
   local stop_file="$CONTROL_DIR/${CHANNEL_NAME}_stop"
   local restart_file="$CONTROL_DIR/${CHANNEL_NAME}_restart"
@@ -124,15 +125,18 @@ check_control_commands() {
     log "INFO" "Comando de encerramento recebido"
     rm -f "$stop_file"
     stop_ffmpeg
-    return 1
+    return 1  # Stop - encerra completamente
   fi
   
   if [[ -f "$restart_file" ]]; then
-    log "INFO" "Comando de reinício recebido"
+    log "INFO" "Comando de reinício recebido - encerrando transmissão atual..."
     rm -f "$restart_file"
     stop_ffmpeg
-    sleep 2
-    return 1
+    # Aguarda alguns segundos para garantir que a transmissão foi completamente encerrada
+    # (como o YouTube Studio faz - encerra completamente antes de iniciar nova)
+    sleep 3
+    log "INFO" "Transmissão encerrada. Iniciando nova transmissão..."
+    return 2  # Restart - reinicia
   fi
   
   if [[ -f "$reload_file" ]]; then
@@ -145,7 +149,7 @@ check_control_commands() {
     log "INFO" "Configuração recarregada"
   fi
   
-  return 0
+  return 0  # Continua normal
 }
 
 # Função para selecionar o vídeo a ser usado
@@ -300,13 +304,17 @@ log "INFO" "Iniciando sistema de streaming para canal: $CHANNEL_NAME"
 # Loop principal
 while true; do
   # Verifica comandos de controle
-  if ! check_control_commands; then
-    # Comando de stop ou restart foi recebido
-    if [[ -f "$CONTROL_DIR/${CHANNEL_NAME}_stop" ]]; then
-      log "INFO" "Live encerrada por comando"
-      break
-    fi
-    # Se foi restart, continua o loop para reiniciar
+  check_control_commands
+  local control_result=$?
+  
+  if [[ $control_result -eq 1 ]]; then
+    # Comando de stop foi recebido - encerra completamente
+    log "INFO" "Live encerrada por comando"
+    break
+  elif [[ $control_result -eq 2 ]]; then
+    # Comando de restart foi recebido - continua o loop para reiniciar
+    # O stop_ffmpeg já foi chamado e aguardou 3 segundos
+    # Continua o loop para iniciar nova transmissão (como YouTube Studio)
   fi
   
   # Verifica se é hora de reiniciar
@@ -360,7 +368,14 @@ while true; do
     update_stats
     
     # Verifica comandos de controle
-    if ! check_control_commands; then
+    check_control_commands
+    local control_result=$?
+    
+    if [[ $control_result -eq 1 ]]; then
+      # Stop - encerra completamente
+      break
+    elif [[ $control_result -eq 2 ]]; then
+      # Restart - sai do loop interno para reiniciar
       break
     fi
     

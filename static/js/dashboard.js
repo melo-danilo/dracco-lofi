@@ -126,7 +126,7 @@ function showTab(tabName) {
     // Ativa botão da aba
     const buttons = document.querySelectorAll('.tab-btn');
     buttons.forEach((btn, index) => {
-        const tabNames = ['status', 'config', 'logs'];
+        const tabNames = ['status', 'preview', 'config', 'logs'];
         if (tabNames[index] === tabName) {
             btn.classList.add('active');
         }
@@ -135,6 +135,8 @@ function showTab(tabName) {
     // Recarrega dados se necessário
     if (tabName === 'logs') {
         loadChannelLogs();
+    } else if (tabName === 'preview') {
+        loadPreview();
     }
 }
 
@@ -163,9 +165,74 @@ async function loadChannelStatus() {
         document.getElementById('uptimeValue').textContent = formatUptime(status.uptime || 0);
         document.getElementById('currentVideo').textContent = status.current_video || 'N/A';
         document.getElementById('nextRestart').textContent = status.next_restart || 'N/A';
+        
+        // Atualiza preview se a aba estiver visível
+        if (document.getElementById('tabPreview').style.display !== 'none') {
+            loadPreview();
+        }
     } catch (error) {
         console.error('Erro ao carregar status:', error);
     }
+}
+
+// Carrega preview do canal
+async function loadPreview() {
+    if (!currentChannel) return;
+    
+    try {
+        const response = await fetch(`/api/channel/${currentChannel}/status`);
+        const status = await response.json();
+        
+        const previewContent = document.getElementById('previewContent');
+        const previewInfo = document.getElementById('previewInfo');
+        
+        if (status.youtube_live_url) {
+            // Constrói URL do iframe do YouTube
+            let embedUrl = status.youtube_live_url;
+            
+            // Se for uma URL completa do YouTube, converte para embed
+            if (embedUrl.includes('youtube.com/watch') || embedUrl.includes('youtu.be/')) {
+                const videoId = extractYouTubeVideoId(embedUrl);
+                if (videoId) {
+                    embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0`;
+                }
+            } else if (!embedUrl.includes('embed')) {
+                // Se for apenas um ID ou URL incompleta, tenta construir
+                if (embedUrl.includes('channel=')) {
+                    embedUrl = `https://www.youtube.com/embed/live_stream?${embedUrl.split('?')[1] || ''}&autoplay=1&mute=0`;
+                } else {
+                    embedUrl = `https://www.youtube.com/embed/${embedUrl}?autoplay=1&mute=0`;
+                }
+            } else {
+                // Já é uma URL de embed, adiciona autoplay
+                embedUrl += (embedUrl.includes('?') ? '&' : '?') + 'autoplay=1&mute=0';
+            }
+            
+            previewContent.innerHTML = `<iframe src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+            previewInfo.textContent = status.streaming ? '🎥 Transmitindo ao vivo' : '⏸ Preview disponível';
+        } else {
+            previewContent.innerHTML = '<div class="preview-placeholder"><p>📺 Preview não configurado</p></div>';
+            previewInfo.innerHTML = 'Configure <code>YOUTUBE_LIVE_URL</code> ou <code>YOUTUBE_CHANNEL_ID</code> no arquivo de configuração do canal para ver o preview.';
+        }
+    } catch (error) {
+        console.error('Erro ao carregar preview:', error);
+        document.getElementById('previewContent').innerHTML = '<div class="preview-placeholder"><p>❌ Erro ao carregar preview</p></div>';
+    }
+}
+
+// Extrai ID do vídeo de uma URL do YouTube
+function extractYouTubeVideoId(url) {
+    const patterns = [
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/,
+        /youtube\.com\/embed\/([^&\n?#]+)/,
+        /youtube\.com\/v\/([^&\n?#]+)/
+    ];
+    
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match) return match[1];
+    }
+    return null;
 }
 
 // Carrega estatísticas
@@ -262,12 +329,18 @@ async function stopChannel() {
     }
 }
 
-// Reinicia canal
+// Reinicia canal (comportamento igual ao YouTube Studio: encerra completamente e inicia nova transmissão)
 async function restartChannel() {
     if (!currentChannel) return;
-    if (!confirm(`Tem certeza que deseja reiniciar a live do canal ${currentChannel}?`)) return;
+    if (!confirm(`Tem certeza que deseja reiniciar a live do canal ${currentChannel}?\n\nA transmissão atual será encerrada completamente e uma nova transmissão será iniciada em alguns segundos.`)) return;
+    
+    const statusValue = document.getElementById('statusValue');
+    const originalStatus = statusValue.textContent;
     
     try {
+        // Mostra feedback imediato
+        statusValue.textContent = '⏳ Encerrando transmissão...';
+        
         const response = await fetch(`/api/channel/${currentChannel}/restart`, {
             method: 'POST'
         });
@@ -275,13 +348,40 @@ async function restartChannel() {
         const data = await response.json();
         
         if (data.success) {
-            alert('Comando de reinício enviado!');
-            setTimeout(loadChannelStatus, 2000);
+            // Atualiza status para mostrar que está reiniciando
+            statusValue.textContent = '⏳ Reiniciando... (encerrando transmissão atual)';
+            
+            // Aguarda alguns segundos (tempo para encerrar completamente)
+            setTimeout(() => {
+                statusValue.textContent = '⏳ Iniciando nova transmissão...';
+            }, 3000);
+            
+            // Aguarda mais tempo antes de verificar status (tempo para nova transmissão iniciar)
+            setTimeout(() => {
+                loadChannelStatus();
+                // Continua verificando até a live voltar
+                let attempts = 0;
+                const checkInterval = setInterval(async () => {
+                    attempts++;
+                    await loadChannelStatus();
+                    
+                    // Verifica se voltou online ou se já tentou muitas vezes
+                    const currentStatus = document.getElementById('statusValue').textContent;
+                    if (currentStatus.includes('🟢 Online') || attempts >= 10) {
+                        clearInterval(checkInterval);
+                        if (attempts >= 10 && !currentStatus.includes('🟢 Online')) {
+                            statusValue.textContent = originalStatus;
+                        }
+                    }
+                }, 3000);
+            }, 8000);
         } else {
-            alert('Erro ao reiniciar live');
+            statusValue.textContent = originalStatus;
+            alert('Erro ao reiniciar live: ' + (data.error || 'Erro desconhecido'));
         }
     } catch (error) {
         console.error('Erro ao reiniciar canal:', error);
+        statusValue.textContent = originalStatus;
         alert('Erro ao reiniciar live');
     }
 }
