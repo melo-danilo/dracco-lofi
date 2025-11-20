@@ -30,9 +30,13 @@ mkdir -p logs control stats
 echo "Removendo imagem antiga (se existir)..."
 docker rmi melodanilo/dracco-lofi:latest 2>/dev/null || true
 
+# Criar tag única baseada em timestamp para garantir uso da nova imagem
+TIMESTAMP_TAG=$(date +%Y%m%d%H%M%S)
+echo "Tag única para esta build: $TIMESTAMP_TAG"
+
 # Fazer build sem cache para garantir que todos os arquivos sejam incluídos
 echo "Fazendo build da imagem Docker (sem cache)..."
-docker build --no-cache -t melodanilo/dracco-lofi:latest .
+docker build --no-cache -t melodanilo/dracco-lofi:latest -t melodanilo/dracco-lofi:$TIMESTAMP_TAG .
 
 # Obter o SHA da imagem recém-construída
 IMAGE_SHA=$(docker inspect melodanilo/dracco-lofi:latest --format '{{.Id}}')
@@ -62,18 +66,45 @@ if docker service ls --format "{{.Name}}" 2>/dev/null | grep -q "^lofi_dashboard
     sleep 3
 fi
 
-# Forçar o Docker Swarm a usar a nova imagem removendo imagens antigas
-echo "Limpando imagens antigas do mesmo nome..."
-docker images melodanilo/dracco-lofi --format "{{.ID}}" | while read img_id; do
-    if [ "$img_id" != "$(docker inspect melodanilo/dracco-lofi:latest --format '{{.Id}}' 2>/dev/null)" ]; then
-        echo "Removendo imagem antiga: $img_id"
-        docker rmi $img_id 2>/dev/null || true
-    fi
-done
+# Tentar fazer push da imagem para o Docker Hub (tag única e latest)
+echo "Tentando fazer push da imagem para o Docker Hub..."
+PUSHED=false
+if docker push melodanilo/dracco-lofi:$TIMESTAMP_TAG 2>&1 | grep -qE "(digest:|pushed)"; then
+    echo "✅ Imagem com tag $TIMESTAMP_TAG enviada para o Docker Hub"
+    PUSHED=true
+    # Também fazer push da tag latest
+    docker push melodanilo/dracco-lofi:latest 2>/dev/null && echo "✅ Tag latest também atualizada no Docker Hub" || true
+else
+    echo "⚠️  Não foi possível fazer push para o Docker Hub"
+    echo "   (Isso é normal se as credenciais não estiverem configuradas)"
+    echo "   Configure com: bash scripts/setup_dockerhub.sh"
+    echo ""
+    echo "   Continuando com deploy usando imagem local (tag: $TIMESTAMP_TAG)..."
+fi
+
+# Verificar novamente se dashboard.py está na imagem local
+echo "Verificação final: dashboard.py na imagem local..."
+if docker run --rm melodanilo/dracco-lofi:latest test -f /app/dashboard.py; then
+    echo "✅ dashboard.py confirmado na imagem local"
+else
+    echo "❌ ERRO CRÍTICO: dashboard.py NÃO está na imagem local!"
+    exit 1
+fi
+
+# Atualizar docker-stack.yml temporariamente para usar a tag única
+echo "Atualizando docker-stack.yml para usar tag única..."
+sed -i.bak "s|image: melodanilo/dracco-lofi:latest|image: melodanilo/dracco-lofi:$TIMESTAMP_TAG|g" docker-stack.yml
 
 # Fazer deploy do stack
 echo "Fazendo deploy do stack..."
 docker stack deploy -c docker-stack.yml lofi
+
+# Restaurar docker-stack.yml original
+echo "Restaurando docker-stack.yml original..."
+mv docker-stack.yml.bak docker-stack.yml 2>/dev/null || true
+
+# Também taggear como latest para uso futuro
+docker tag melodanilo/dracco-lofi:$TIMESTAMP_TAG melodanilo/dracco-lofi:latest
 
 # Aguardar o serviço iniciar
 echo "Aguardando serviço dashboard iniciar..."

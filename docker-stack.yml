@@ -11,6 +11,10 @@ services:
       update_config:
         parallelism: 1
         order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: start-first
     environment:
       DASHBOARD_USER: ${DASHBOARD_USER:-admin}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-admin123}
