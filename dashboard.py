@@ -210,11 +210,27 @@ def stop_channel(channel_name):
 @app.route('/api/channel/<channel_name>/restart', methods=['POST'])
 @login_required
 def restart_channel(channel_name):
-    """Reinicia a live de um canal"""
-    control_file = CONTROL_DIR / f"{channel_name}_restart"
-    control_file.touch()
+    """Reinicia a live de um canal (encerra completamente e inicia nova transmissão)"""
+    # Primeiro, encerra a live atual (como o botão do YouTube Studio)
+    stop_file = CONTROL_DIR / f"{channel_name}_stop"
+    restart_file = CONTROL_DIR / f"{channel_name}_restart"
     
-    return jsonify({'success': True, 'message': f'Comando de reinício enviado para {channel_name}'})
+    # Remove arquivos antigos se existirem
+    if stop_file.exists():
+        stop_file.unlink()
+    if restart_file.exists():
+        restart_file.unlink()
+    
+    # Cria arquivo de restart (o entrypoint.sh vai encerrar e reiniciar automaticamente)
+    restart_file.touch()
+    
+    # Aguarda um pouco para garantir que o comando foi processado
+    time.sleep(0.5)
+    
+    return jsonify({
+        'success': True, 
+        'message': f'Live encerrada e reinício iniciado para {channel_name}. Nova transmissão será iniciada em alguns segundos.'
+    })
 
 def validate_config_value(key, value):
     """
@@ -448,6 +464,7 @@ def get_channel_status(channel_name):
         pid_file = Path(f'/app/ffmpeg.pid')
     stats_file = STATS_DIR / f"{channel_name}.json"
     log_file = LOG_DIR / f"{channel_name}.log"
+    config_file = Path(f'/app/config/{channel_name}.env')
     
     status = {
         'name': channel_name,
@@ -456,8 +473,25 @@ def get_channel_status(channel_name):
         'uptime': 0,
         'current_video': 'N/A',
         'streaming': False,  # Indica se está realmente transmitindo
-        'last_activity': None
+        'last_activity': None,
+        'youtube_live_url': None  # URL do YouTube Live para preview
     }
+    
+    # Lê URL do YouTube Live do arquivo de configuração
+    if config_file.exists():
+        try:
+            with open(config_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('YOUTUBE_LIVE_URL=') and not line.startswith('#'):
+                        status['youtube_live_url'] = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    elif line.startswith('YOUTUBE_CHANNEL_ID=') and not line.startswith('#'):
+                        channel_id = line.split('=', 1)[1].strip().strip('"').strip("'")
+                        # Constrói URL do YouTube Live se tiver channel ID
+                        if channel_id and not status['youtube_live_url']:
+                            status['youtube_live_url'] = f"https://www.youtube.com/embed/live_stream?channel={channel_id}"
+        except:
+            pass
     
     # Primeiro, carrega estatísticas do arquivo (atualizado pelo entrypoint)
     if stats_file.exists():
