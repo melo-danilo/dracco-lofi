@@ -99,9 +99,9 @@
                     <div class="control-card">
                         <p class="panel-title">Controles</p>
                         <div class="control-actions">
-                            <button id="btnStart" class="btn-action btn-start" onclick="startChannel()">▶️ Iniciar Live</button>
-                            <button id="btnStop" class="btn-action btn-stop" onclick="stopChannel()">⏹ Encerrar Live</button>
-                            <button id="btnRestart" class="btn-action btn-restart" onclick="restartChannel()">🔄 Reiniciar Live</button>
+                            <button id="btnStart" class="btn-action btn-start" onclick="confirmAction('start')">▶️ Iniciar Live</button>
+                            <button id="btnStop" class="btn-action btn-stop" onclick="confirmAction('stop')">⏹ Encerrar Live</button>
+                            <button id="btnRestart" class="btn-action btn-restart" onclick="confirmAction('restart')">🔄 Reiniciar Live</button>
                         </div>
                         <p id="controlStatus" class="control-status">Nenhum comando enviado ainda.</p>
                         <div class="config-summary">

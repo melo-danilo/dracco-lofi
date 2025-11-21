@@ -487,7 +487,7 @@ while true; do
   tee_target="[f=flv]${RTMP_URL}|[f=hls:hls_time=2:hls_list_size=3:hls_flags=delete_segments+append_list+omit_endlist:hls_allow_cache=0]${PREVIEW_MANIFEST}"
   ffmpeg -re -stream_loop -1 -i "$PLAYLIST_FILE" \
     -stream_loop -1 -i "$VIDEO_FILE" \
-    -map 1:v -map 0:a \
+    -map 1:v:0 -map 0:a:0 \
     "${FF_ARGS[@]}" \
     -f tee "$tee_target" 2>&1 | while IFS= read -r line; do
       log "FFMPEG" "$line"

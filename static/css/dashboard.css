@@ -346,6 +346,50 @@ body {
     flex-direction: column;
     gap: 16px;
 }
+/* Modal */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+}
+
+.modal-box {
+    background: #fff;
+    border-radius: 18px;
+    padding: 24px;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.modal-actions button {
+    border: none;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.modal-confirm {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #fff;
+}
+
+.modal-cancel {
+    background: #e5e7eb;
+    color: #0f172a;
+}
 
 .control-card .panel-title {
     font-size: 16px;

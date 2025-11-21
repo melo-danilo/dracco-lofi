@@ -11,6 +11,35 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('detailsPanel').style.display = 'none';
 });
 
+const actionModal = document.createElement('div');
+actionModal.className = 'modal-overlay';
+actionModal.innerHTML = `
+    <div class="modal-box">
+        <h3 id="modalTitle">Confirmação</h3>
+        <p id="modalMessage">Confirma ação?</p>
+        <div class="modal-actions">
+            <button class="modal-cancel" onclick="closeActionModal()">Cancelar</button>
+            <button class="modal-confirm" id="modalConfirm">Confirmar</button>
+        </div>
+    </div>
+`;
+document.body.appendChild(actionModal);
+let currentAction = null;
+
+function openActionModal(action, label, message) {
+    currentAction = action;
+    document.getElementById('modalTitle').textContent = label;
+    document.getElementById('modalMessage').textContent = message;
+    const confirmButton = document.getElementById('modalConfirm');
+    confirmButton.onclick = () => handleAction(action);
+    actionModal.style.display = 'flex';
+}
+
+function closeActionModal() {
+    actionModal.style.display = 'none';
+    currentAction = null;
+}
+
 function connectWebSocket() {
     socket = io();
 
@@ -79,7 +108,7 @@ function showChannelDetails(channelName) {
     loadChannelConfig();
     loadChannelHistory();
     loadChannelLogs();
-    loadEventHistory();
+    loadChannelEvents();
 
     if (socket) {
         socket.emit('subscribe_logs', { channel: channelName });
@@ -336,13 +365,12 @@ function clearLogs() {
 
 async function stopChannel() {
     if (!currentChannel) return;
-    if (!confirm(`Deseja encerrar a live ${currentChannel}?`)) return;
-
     try {
         const response = await fetch(`/api/channel/${currentChannel}/stop`, { method: 'POST' });
         const data = await response.json();
         if (data.success) {
             setControlStatus('Comando de encerramento enviado!');
+            loadChannelEvents();
             setTimeout(loadChannelStatus, 2000);
         } else {
             setControlStatus('Erro ao encerrar live.', 'error');
@@ -350,6 +378,8 @@ async function stopChannel() {
     } catch (error) {
         console.error('Erro ao encerrar canal:', error);
         setControlStatus('Erro ao encerrar live.', 'error');
+    } finally {
+        closeActionModal();
     }
 }
 
@@ -361,6 +391,7 @@ async function startChannel() {
         const data = await response.json();
         if (data.success) {
             setControlStatus('Live será iniciada em instantes.');
+            loadChannelEvents();
             setTimeout(loadChannelStatus, 3000);
         } else {
             setControlStatus('Erro ao iniciar live.', 'error');
@@ -368,19 +399,20 @@ async function startChannel() {
     } catch (error) {
         console.error('Erro ao iniciar canal:', error);
         setControlStatus('Erro ao iniciar live.', 'error');
+    } finally {
+        closeActionModal();
     }
 }
 
 async function restartChannel() {
     if (!currentChannel) return;
-    if (!confirm(`Deseja reiniciar a live ${currentChannel}? O stream será encerrado e iniciado novamente.`)) return;
-
     try {
         setControlStatus('Reinicializando stream...');
         const response = await fetch(`/api/channel/${currentChannel}/restart`, { method: 'POST' });
         const data = await response.json();
         if (data.success) {
             setControlStatus('Live reiniciada. Aguardando nova transmissão...');
+            loadChannelEvents();
             setTimeout(loadChannelStatus, 5000);
         } else {
             setControlStatus('Erro ao reiniciar live.', 'error');
@@ -388,6 +420,41 @@ async function restartChannel() {
     } catch (error) {
         console.error('Erro ao reiniciar canal:', error);
         setControlStatus('Erro ao reiniciar live.', 'error');
+    } finally {
+        closeActionModal();
+    }
+}
+
+function confirmAction(action) {
+    const actionMap = {
+        start: {
+            label: 'Confirmar início',
+            message: 'Deseja iniciar a live agora?'
+        },
+        stop: {
+            label: 'Confirmar encerramento',
+            message: 'Deseja encerrar a live atual?'
+        },
+        restart: {
+            label: 'Confirmar reinício',
+            message: 'Deseja reiniciar a live (encerra e inicia outra)?'
+        }
+    };
+    if (!actionMap[action]) return;
+    openActionModal(action, actionMap[action].label, actionMap[action].message);
+}
+
+function handleAction(action) {
+    switch(action) {
+        case 'start':
+            startChannel();
+            break;
+        case 'stop':
+            stopChannel();
+            break;
+        case 'restart':
+            restartChannel();
+            break;
     }
 }
 
@@ -440,7 +507,7 @@ function applyLogFilter() {
     });
 }
 
-async function loadEventHistory() {
+async function loadChannelEvents() {
     if (!currentChannel) return;
     try {
         const response = await fetch(`/api/channel/${currentChannel}/events`);
