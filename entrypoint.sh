@@ -496,6 +496,7 @@ while true; do
   FFMPEG_PID=$!
   echo "$FFMPEG_PID" > "$FFMPEG_PID_FILE"
   log "INFO" "FFmpeg iniciado com PID: $FFMPEG_PID"
+  update_stats
   
   # Monitora o processo FFmpeg e verifica comandos de controle frequentemente
   while kill -0 "$FFMPEG_PID" 2>/dev/null; do
