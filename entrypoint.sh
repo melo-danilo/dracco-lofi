@@ -9,6 +9,7 @@ PREVIEW_DIR="$APP_DIR/preview"
 PREVIEW_CHANNEL_DIR="$PREVIEW_DIR/${CHANNEL_NAME}"
 PREVIEW_MANIFEST="$PREVIEW_CHANNEL_DIR/index.m3u8"
 LAST_STREAM_START_TIME=0
+ALERT_WEBHOOK="${STOP_ALERT_WEBHOOK:-}"
 
 if [[ -n "$CHANNEL_NAME" ]]; then
   CHANNEL_CONFIG_FILE="${CHANNEL_CONFIG_FILE:-$APP_DIR/config/${CHANNEL_NAME}.env}"
@@ -69,6 +70,16 @@ log() {
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
   echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
   printf "[%s] [%s] %s\n" "$timestamp" "$level" "$message" >> "$EVENT_LOG_FILE"
+}
+
+send_alert() {
+  local event="$1"
+  if [[ -z "$ALERT_WEBHOOK" ]]; then
+    return
+  fi
+  curl -sS -X POST -H "Content-Type: application/json" \
+    -d "{\"channel\":\"${CHANNEL_NAME}\",\"event\":\"${event}\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+    "$ALERT_WEBHOOK" >/dev/null 2>&1 || log "WARN" "Falha ao notificar alert webhook"
 }
 
 # Calcula o timestamp ISO do próximo reinício baseado em RESTART_HOUR
@@ -142,6 +153,11 @@ update_stats() {
   local next_restart
   next_restart=$(compute_next_restart_iso)
 
+  local streaming_flag="false"
+  if [[ "$status" == "running" ]]; then
+    streaming_flag="true"
+  fi
+
   cat > "$STATS_FILE" <<EOF
 {
   "status": "$status",
@@ -152,6 +168,7 @@ update_stats() {
   "fps": "$VIDEO_FPS",
   "resolution": "$VIDEO_SCALE",
   "preview_ready": $preview_flag,
+  "streaming": $streaming_flag,
   "last_restart": "$last_restart",
   "next_restart": "$next_restart"
 }
@@ -185,6 +202,7 @@ check_control_commands() {
     log "INFO" "Comando de encerramento recebido (arquivo: $stop_file)"
     rm -f "$stop_file"
     stop_ffmpeg
+    send_alert "stop_command"
     return 1  # Stop - encerra completamente
   fi
   
@@ -194,12 +212,14 @@ check_control_commands() {
     stop_ffmpeg
     sleep 3
     log "INFO" "Transmissão encerrada. Iniciando nova transmissão..."
+    send_alert "restart_command"
     return 2  # Restart - reinicia
   fi
 
   if [[ -f "$start_file" ]]; then
     log "INFO" "Comando de início recebido (arquivo: $start_file)"
     rm -f "$start_file"
+    send_alert "start_command"
     return 3  # Start - liga a live
   fi
   
@@ -540,9 +560,15 @@ while true; do
     fi
   done
   
-  # Se o FFmpeg terminou por erro, aguarda antes de reiniciar
-  if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
-    log "WARN" "FFmpeg terminou inesperadamente. Reiniciando em 5 segundos..."
+  local ffmpeg_rc=0
+  wait "$FFMPEG_PID" 2>/dev/null || true
+  ffmpeg_rc=$?
+  if [[ $ffmpeg_rc -eq 0 ]]; then
+    SHOULD_RUN=0
+  fi
+
+  if [[ $SHOULD_RUN -eq 1 ]]; then
+    log "WARN" "FFmpeg terminou inesperadamente (rc=$ffmpeg_rc). Reiniciando em 5 segundos..."
     sleep 5
   fi
   
