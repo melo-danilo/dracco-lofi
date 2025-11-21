@@ -126,6 +126,7 @@ function updateStatusUI(status) {
     document.getElementById('metricVideoCount').textContent = status.video_count || 0;
     document.getElementById('metricNextRestart').textContent = status.next_restart || 'N/A';
     document.getElementById('lastConfigSaved').textContent = status.config_last_saved ? new Date(status.config_last_saved).toLocaleString() : 'Ainda não salvo';
+    updateControlButtons(status);
 }
 
 function renderPreview(status) {
@@ -149,6 +150,13 @@ function renderPreview(status) {
         previewFallback.textContent = 'Preview ainda não gerado';
         resetPreview();
     }
+}
+
+function updateControlButtons(status) {
+    const isOnline = status.streaming !== undefined ? status.streaming : status.running;
+    document.getElementById('btnStart').disabled = isOnline;
+    document.getElementById('btnStop').disabled = !isOnline;
+    document.getElementById('btnRestart').disabled = !isOnline;
 }
 
 function attachPreviewStream(url) {
@@ -337,6 +345,24 @@ async function stopChannel() {
     } catch (error) {
         console.error('Erro ao encerrar canal:', error);
         setControlStatus('Erro ao encerrar live.', 'error');
+    }
+}
+
+async function startChannel() {
+    if (!currentChannel) return;
+    try {
+        setControlStatus('Acionando live...');
+        const response = await fetch(`/api/channel/${currentChannel}/start`, { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            setControlStatus('Live será iniciada em instantes.');
+            setTimeout(loadChannelStatus, 3000);
+        } else {
+            setControlStatus('Erro ao iniciar live.', 'error');
+        }
+    } catch (error) {
+        console.error('Erro ao iniciar canal:', error);
+        setControlStatus('Erro ao iniciar live.', 'error');
     }
 }
 
