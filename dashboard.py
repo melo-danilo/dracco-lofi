@@ -226,6 +226,25 @@ def stop_channel(channel_name):
     
     return jsonify({'success': True, 'message': f'Comando de encerramento enviado para {channel_name}'})
 
+@app.route('/api/channel/<channel_name>/start', methods=['POST'])
+@login_required
+def start_channel(channel_name):
+    """Liga a live manualmente"""
+    start_file = CONTROL_DIR / f"{channel_name}_start"
+    stop_file = CONTROL_DIR / f"{channel_name}_stop"
+    restart_file = CONTROL_DIR / f"{channel_name}_restart"
+
+    for file in (stop_file, restart_file):
+        if file.exists():
+            file.unlink()
+
+    CONTROL_DIR.mkdir(parents=True, exist_ok=True)
+    start_file.touch()
+    os.sync()
+
+    app.logger.info(f"Arquivo de start criado: {start_file}")
+    return jsonify({'success': True, 'message': f'Live sendo iniciada para {channel_name}'})
+
 @app.route('/api/channel/<channel_name>/restart', methods=['POST'])
 @login_required
 def restart_channel(channel_name):

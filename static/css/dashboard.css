@@ -369,6 +369,10 @@ body {
     background: linear-gradient(135deg, #ef4444, #dc2626);
 }
 
+.btn-start {
+    background: linear-gradient(135deg, #10b981, #059669);
+}
+
 .btn-restart {
     background: linear-gradient(135deg, #2563eb, #4f46e5);
 }

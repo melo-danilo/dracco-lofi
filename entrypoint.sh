@@ -171,6 +171,7 @@ start_healthcheck_server() {
 check_control_commands() {
   local stop_file="$CONTROL_DIR/${CHANNEL_NAME}_stop"
   local restart_file="$CONTROL_DIR/${CHANNEL_NAME}_restart"
+  local start_file="$CONTROL_DIR/${CHANNEL_NAME}_start"
   local reload_file="$CONTROL_DIR/${CHANNEL_NAME}_reload"
   
   # Verifica se o diretório de controle existe
@@ -189,11 +190,15 @@ check_control_commands() {
     log "INFO" "Comando de reinício recebido - encerrando transmissão atual... (arquivo: $restart_file)"
     rm -f "$restart_file"
     stop_ffmpeg
-    # Aguarda alguns segundos para garantir que a transmissão foi completamente encerrada
-    # (como o YouTube Studio faz - encerra completamente antes de iniciar nova)
     sleep 3
     log "INFO" "Transmissão encerrada. Iniciando nova transmissão..."
     return 2  # Restart - reinicia
+  fi
+
+  if [[ -f "$start_file" ]]; then
+    log "INFO" "Comando de início recebido (arquivo: $start_file)"
+    rm -f "$start_file"
+    return 3  # Start - liga a live
   fi
   
   if [[ -f "$reload_file" ]]; then
@@ -412,38 +417,47 @@ generate_playlist
 
 # Variável para rastrear se já reiniciamos nesta hora
 LAST_RESTART_TIME=""
+SHOULD_RUN=1
+STREAM_ACTIVE=0
 
 log "INFO" "Iniciando sistema de streaming para canal: $CHANNEL_NAME"
 
 # Loop principal
 while true; do
-  # Verifica comandos de controle ANTES de iniciar nova transmissão
-  check_control_commands
-  control_result=$?
-  
-  if [[ $control_result -eq 1 ]]; then
-    # Comando de stop foi recebido - encerra completamente
-    log "INFO" "Live encerrada por comando de stop"
-    # Garante que o FFmpeg está encerrado
-    stop_ffmpeg
-    break
-  elif [[ $control_result -eq 2 ]]; then
-    # Comando de restart foi recebido - continua o loop para reiniciar
-    # O stop_ffmpeg já foi chamado e aguardou 3 segundos
-    # Aguarda mais um pouco para garantir encerramento completo antes de reiniciar
-    sleep 2
-    log "INFO" "Reiniciando live - iniciando nova transmissão..."
-    # Continua o loop para iniciar nova transmissão (como YouTube Studio)
+  control_result=$(check_control_commands)
+  case "$control_result" in
+    1)
+      log "INFO" "Live encerrada por comando de stop"
+      SHOULD_RUN=0
+      STREAM_ACTIVE=0
+      stop_ffmpeg
+      continue
+      ;;
+    2)
+      log "INFO" "Reiniciando live - iniciando nova transmissão..."
+      SHOULD_RUN=1
+      STREAM_ACTIVE=0
+      continue
+      ;;
+    3)
+      log "INFO" "Comando de início recebido"
+      SHOULD_RUN=1
+      STREAM_ACTIVE=0
+      continue
+      ;;
+  esac
+
+  if [[ $SHOULD_RUN -ne 1 ]]; then
+    sleep 1
+    continue
   fi
-  
-  # Verifica se é hora de reiniciar
+
   current_datetime_hour=$(date '+%Y-%m-%d-%H')
   if should_restart && [[ "$LAST_RESTART_TIME" != "$current_datetime_hour" ]]; then
     log "INFO" "Hora de reiniciar a live (${RESTART_HOUR}h)..."
+    SHOULD_RUN=1
     stop_ffmpeg
     LAST_RESTART_TIME="$current_datetime_hour"
-    
-    # Aguarda alguns segundos antes de reiniciar
     sleep 5
   fi
   
@@ -461,6 +475,7 @@ while true; do
   
   prepare_preview_dir
 
+  STREAM_ACTIVE=1
   log "INFO" "Iniciando stream com vídeo: $(basename "$VIDEO_FILE")"
   STREAM_START_TIME=$(date +%s)
   LAST_STREAM_START_TIME="$STREAM_START_TIME"
@@ -491,15 +506,17 @@ while true; do
       control_result=$?
       
       if [[ $control_result -eq 1 ]]; then
-        # Stop - encerra completamente
+        SHOULD_RUN=0
+        STREAM_ACTIVE=0
         stop_ffmpeg
-        break 2  # Sai dos dois loops (for e while)
+        break 2
       elif [[ $control_result -eq 2 ]]; then
-        # Restart - encerra e sai do loop interno para reiniciar
+        SHOULD_RUN=1
         stop_ffmpeg
-        # Aguarda mais um pouco para garantir encerramento completo
         sleep 2
-        break 2  # Sai dos dois loops (for e while)
+        break 2
+      elif [[ $control_result -eq 3 ]]; then
+        SHOULD_RUN=1
       fi
       
       # Se o FFmpeg terminou, sai do loop interno
@@ -526,6 +543,7 @@ while true; do
     sleep 5
   fi
   
+  STREAM_ACTIVE=0
   rm -f "$FFMPEG_PID_FILE"
   update_stats
 done
