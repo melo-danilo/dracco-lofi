@@ -361,7 +361,7 @@ log "INFO" "Iniciando sistema de streaming para canal: $CHANNEL_NAME"
 while true; do
   # Verifica comandos de controle ANTES de iniciar nova transmissão
   check_control_commands
-  local control_result=$?
+  control_result=$?
   
   if [[ $control_result -eq 1 ]]; then
     # Comando de stop foi recebido - encerra completamente
@@ -379,7 +379,7 @@ while true; do
   fi
   
   # Verifica se é hora de reiniciar
-  local current_datetime_hour=$(date '+%Y-%m-%d-%H')
+  current_datetime_hour=$(date '+%Y-%m-%d-%H')
   if should_restart && [[ "$LAST_RESTART_TIME" != "$current_datetime_hour" ]]; then
     log "INFO" "Hora de reiniciar a live (${RESTART_HOUR}h)..."
     stop_ffmpeg
