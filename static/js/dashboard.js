@@ -1,23 +1,22 @@
 let currentChannel = null;
 let socket = null;
 let statsInterval = null;
-let logsInterval = null;
+let previewHls = null;
 
-// Inicialização
 document.addEventListener('DOMContentLoaded', () => {
     loadChannels();
     connectWebSocket();
     loadServerInfo();
+    document.getElementById('detailsPanel').style.display = 'none';
 });
 
-// Conecta ao WebSocket
 function connectWebSocket() {
     socket = io();
-    
+
     socket.on('connect', () => {
         console.log('Conectado ao servidor');
     });
-    
+
     socket.on('logs', (data) => {
         if (data.channel === currentChannel) {
             appendLogs(data.lines);
@@ -25,256 +24,205 @@ function connectWebSocket() {
     });
 }
 
-// Carrega lista de canais
 async function loadChannels() {
     try {
         const response = await fetch('/api/channels');
         const data = await response.json();
-        
         const channelsList = document.getElementById('channelsList');
         channelsList.innerHTML = '';
-        
+
         data.channels.forEach(channel => {
-            const card = createChannelCard(channel);
-            channelsList.appendChild(card);
+            channelsList.appendChild(createChannelCard(channel));
         });
     } catch (error) {
         console.error('Erro ao carregar canais:', error);
     }
 }
 
-// Cria card de canal
 function createChannelCard(channel) {
-    const card = document.createElement('div');
-    card.className = 'channel-card';
-    card.onclick = () => showChannelDetails(channel.name);
-    
-    // Usa 'streaming' se disponível, senão usa 'running'
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'channel-card';
+    btn.onclick = () => showChannelDetails(channel.name);
+
     const isOnline = channel.status.streaming !== undefined ? channel.status.streaming : channel.status.running;
     const statusClass = isOnline ? 'running' : 'stopped';
     const statusText = isOnline ? 'Online' : 'Offline';
-    
-    card.innerHTML = `
+    const activity = channel.status.last_activity || 'Sem atividade recente';
+
+    btn.innerHTML = `
         <div class="channel-name">${channel.name}</div>
         <div class="channel-status">
             <span class="status-indicator ${statusClass}"></span>
             <span>${statusText}</span>
         </div>
+        <div class="channel-meta">${activity}</div>
     `;
-    
-    return card;
+
+    return btn;
 }
 
-// Mostra detalhes do canal
-async function showChannelDetails(channelName) {
+function showChannelDetails(channelName) {
     currentChannel = channelName;
-    
-    // Ativa card selecionado
     document.querySelectorAll('.channel-card').forEach(card => {
-        card.classList.remove('active');
-        if (card.querySelector('.channel-name').textContent === channelName) {
-            card.classList.add('active');
-        }
+        card.classList.toggle('active', card.querySelector('.channel-name').textContent === channelName);
     });
-    
-    // Mostra seção de detalhes
-    const detailsSection = document.getElementById('detailsSection');
-    detailsSection.style.display = 'block';
-    document.getElementById('channelTitle').textContent = `Canal: ${channelName}`;
-    
-    // Mostra aba de status
-    showTab('status');
-    
-    // Carrega dados
+
+    const detailsPanel = document.getElementById('detailsPanel');
+    detailsPanel.style.display = 'block';
+    document.getElementById('channelDetailTitle').textContent = `Canal: ${channelName}`;
+    document.getElementById('channelSubtitle').textContent = `Visão completa da transmissão de ${channelName}`;
+
+    updateConfigFileReference();
     loadChannelStatus();
     loadChannelConfig();
+    loadChannelHistory();
     loadChannelLogs();
-    
-    // Inscreve em logs
+
     if (socket) {
         socket.emit('subscribe_logs', { channel: channelName });
     }
-    
-    // Inicia atualização periódica
-    if (statsInterval) clearInterval(statsInterval);
+
+    if (statsInterval) {
+        clearInterval(statsInterval);
+    }
     statsInterval = setInterval(loadChannelStatus, 5000);
 }
 
-// Fecha detalhes
 function closeDetails() {
     currentChannel = null;
-    document.getElementById('detailsSection').style.display = 'none';
+    document.getElementById('detailsPanel').style.display = 'none';
     if (statsInterval) {
         clearInterval(statsInterval);
         statsInterval = null;
     }
+    resetPreview();
 }
 
-// Mostra aba
-function showTab(tabName) {
-    // Esconde todas as abas
-    document.querySelectorAll('.tab-content').forEach(tab => {
-        tab.style.display = 'none';
-    });
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    
-    // Mostra aba selecionada
-    document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).style.display = 'block';
-    
-    // Ativa botão da aba
-    const buttons = document.querySelectorAll('.tab-btn');
-    buttons.forEach((btn, index) => {
-        const tabNames = ['status', 'preview', 'config', 'logs'];
-        if (tabNames[index] === tabName) {
-            btn.classList.add('active');
-        }
-    });
-    
-    // Recarrega dados se necessário
-    if (tabName === 'logs') {
-        loadChannelLogs();
-    } else if (tabName === 'preview') {
-        loadPreview();
-    }
-}
-
-// Carrega status do canal
 async function loadChannelStatus() {
     if (!currentChannel) return;
-    
+
     try {
         const response = await fetch(`/api/channel/${currentChannel}/status`);
         const status = await response.json();
-        
-        // Usa 'streaming' se disponível para determinar status real
-        const isOnline = status.streaming !== undefined ? status.streaming : status.running;
-        const statusEmoji = isOnline ? '🟢' : '🔴';
-        const statusText = isOnline ? 'Online' : 'Offline';
-        
-        // Adiciona informação adicional se processo está rodando mas não transmitindo
-        let statusDetail = '';
-        if (status.running && !isOnline) {
-            statusDetail = ' (Processo rodando, mas não transmitindo)';
-        } else if (status.last_activity) {
-            statusDetail = ` (Última atividade: ${status.last_activity})`;
-        }
-        
-        document.getElementById('statusValue').textContent = `${statusEmoji} ${statusText}${statusDetail}`;
-        document.getElementById('uptimeValue').textContent = formatUptime(status.uptime || 0);
-        document.getElementById('currentVideo').textContent = status.current_video || 'N/A';
-        document.getElementById('nextRestart').textContent = status.next_restart || 'N/A';
-        
-        // Atualiza preview se a aba estiver visível
-        if (document.getElementById('tabPreview').style.display !== 'none') {
-            loadPreview();
-        }
+        updateStatusUI(status);
+        renderPreview(status);
     } catch (error) {
         console.error('Erro ao carregar status:', error);
     }
 }
 
-// Carrega preview do canal
-async function loadPreview() {
-    if (!currentChannel) return;
-    
-    try {
-        const response = await fetch(`/api/channel/${currentChannel}/status`);
-        const status = await response.json();
-        
-        const previewContent = document.getElementById('previewContent');
-        const previewInfo = document.getElementById('previewInfo');
-        
-        if (status.youtube_live_url) {
-            // Constrói URL do iframe do YouTube
-            let embedUrl = status.youtube_live_url;
-            
-            // Se for uma URL completa do YouTube, converte para embed
-            if (embedUrl.includes('youtube.com/watch') || embedUrl.includes('youtu.be/')) {
-                const videoId = extractYouTubeVideoId(embedUrl);
-                if (videoId) {
-                    embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0`;
-                }
-            } else if (!embedUrl.includes('embed')) {
-                // Se for apenas um ID ou URL incompleta, tenta construir
-                if (embedUrl.includes('channel=')) {
-                    embedUrl = `https://www.youtube.com/embed/live_stream?${embedUrl.split('?')[1] || ''}&autoplay=1&mute=0`;
-                } else {
-                    embedUrl = `https://www.youtube.com/embed/${embedUrl}?autoplay=1&mute=0`;
-                }
-            } else {
-                // Já é uma URL de embed, adiciona autoplay
-                embedUrl += (embedUrl.includes('?') ? '&' : '?') + 'autoplay=1&mute=0';
-            }
-            
-            previewContent.innerHTML = `<iframe src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
-            previewInfo.textContent = status.streaming ? '🎥 Transmitindo ao vivo' : '⏸ Preview disponível';
-        } else {
-            previewContent.innerHTML = '<div class="preview-placeholder"><p>📺 Preview não configurado</p></div>';
-            previewInfo.innerHTML = 'Configure <code>YOUTUBE_LIVE_URL</code> ou <code>YOUTUBE_CHANNEL_ID</code> no arquivo de configuração do canal para ver o preview.';
-        }
-    } catch (error) {
-        console.error('Erro ao carregar preview:', error);
-        document.getElementById('previewContent').innerHTML = '<div class="preview-placeholder"><p>❌ Erro ao carregar preview</p></div>';
+function updateStatusUI(status) {
+    const isOnline = status.streaming !== undefined ? status.streaming : status.running;
+    const statusLabel = isOnline ? '🟢 Online' : '🔴 Offline';
+    const statusDetail = status.running && !isOnline
+        ? 'Processo rodando, mas sem envio'
+        : (status.last_activity || 'Sem atividade registrada');
+
+    document.getElementById('metricStatus').textContent = statusLabel;
+    document.getElementById('metricStatusDetail').textContent = statusDetail;
+    document.getElementById('metricUptime').textContent = formatUptime(status.uptime || 0);
+    document.getElementById('metricVideo').textContent = status.current_video || 'N/A';
+    document.getElementById('metricVideoCount').textContent = status.video_count || 0;
+    document.getElementById('metricNextRestart').textContent = status.next_restart || 'N/A';
+    document.getElementById('lastConfigSaved').textContent = status.config_last_saved ? new Date(status.config_last_saved).toLocaleString() : 'Ainda não salvo';
+}
+
+function renderPreview(status) {
+    const previewStatus = document.getElementById('previewStatus');
+    const previewHint = document.getElementById('previewHint');
+    const previewFallback = document.getElementById('previewFallback');
+
+    if (status.preview_ready && status.preview_url) {
+        previewStatus.textContent = 'Preview ativo';
+        previewStatus.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
+        previewStatus.style.color = '#4ade80';
+        previewHint.textContent = 'Preview acompanha exatamente o stream enviado ao YouTube.';
+        previewFallback.style.display = 'none';
+        attachPreviewStream(status.preview_url);
+    } else {
+        previewStatus.textContent = 'Preview indisponível';
+        previewStatus.style.backgroundColor = 'rgba(248, 113, 113, 0.15)';
+        previewStatus.style.color = '#f87171';
+        previewHint.textContent = 'O preview ficará disponível assim que o FFmpeg iniciar.';
+        previewFallback.style.display = 'flex';
+        previewFallback.textContent = 'Preview ainda não gerado';
+        resetPreview();
     }
 }
 
-// Extrai ID do vídeo de uma URL do YouTube
-function extractYouTubeVideoId(url) {
-    const patterns = [
-        /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/,
-        /youtube\.com\/embed\/([^&\n?#]+)/,
-        /youtube\.com\/v\/([^&\n?#]+)/
-    ];
-    
-    for (const pattern of patterns) {
-        const match = url.match(pattern);
-        if (match) return match[1];
+function attachPreviewStream(url) {
+    const video = document.getElementById('livePreviewVideo');
+    if (previewHls) {
+        previewHls.destroy();
+        previewHls = null;
     }
-    return null;
+
+    if (window.Hls && Hls.isSupported()) {
+        previewHls = new Hls();
+        previewHls.loadSource(url);
+        previewHls.attachMedia(video);
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+    } else {
+        document.getElementById('previewFallback').textContent = 'Seu navegador não suporta HLS automaticamente.';
+        document.getElementById('previewFallback').style.display = 'flex';
+        return;
+    }
+    video.play().catch(() => {});
 }
 
-// Carrega estatísticas
-async function loadChannelStats() {
-    if (!currentChannel) return;
-    
-    try {
-        const response = await fetch(`/api/channel/${currentChannel}/stats`);
-        const stats = await response.json();
-        
-        // Atualiza UI com estatísticas
-        return stats;
-    } catch (error) {
-        console.error('Erro ao carregar estatísticas:', error);
+function resetPreview() {
+    const video = document.getElementById('livePreviewVideo');
+    if (previewHls) {
+        previewHls.destroy();
+        previewHls = null;
     }
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
 }
 
-// Carrega configuração do canal
+function formatUptime(seconds) {
+    if (!seconds) return '0s';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hours > 0) {
+        return `${hours}h ${minutes}m ${secs}s`;
+    } else if (minutes > 0) {
+        return `${minutes}m ${secs}s`;
+    }
+    return `${secs}s`;
+}
+
 async function loadChannelConfig() {
     if (!currentChannel) return;
-    
+
     try {
         const response = await fetch(`/api/channel/${currentChannel}/config`);
         const data = await response.json();
-        const config = data.config;
-        
-        document.getElementById('restartHour').value = config.RESTART_HOUR || '12';
-        document.getElementById('videoBitrate').value = config.VIDEO_BITRATE || '4500k';
-        document.getElementById('audioBitrate').value = config.AUDIO_BITRATE || '160k';
-        document.getElementById('videoFps').value = config.VIDEO_FPS || '30';
-        document.getElementById('videoScale').value = config.VIDEO_SCALE || '1920:1080';
+        populateConfigForm(data.config);
+        if (data.last_saved) {
+            document.getElementById('lastConfigSaved').textContent = new Date(data.last_saved).toLocaleString();
+        }
     } catch (error) {
         console.error('Erro ao carregar configuração:', error);
     }
 }
 
-// Salva configuração
-document.getElementById('configForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
+function populateConfigForm(config) {
+    document.getElementById('restartHour').value = config.RESTART_HOUR || '12';
+    document.getElementById('videoBitrate').value = config.VIDEO_BITRATE || '4500k';
+    document.getElementById('audioBitrate').value = config.AUDIO_BITRATE || '160k';
+    document.getElementById('videoFps').value = config.VIDEO_FPS || '30';
+    document.getElementById('videoScale').value = config.VIDEO_SCALE || '1920:1080';
+}
+
+document.getElementById('configForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
     if (!currentChannel) return;
-    
+
     const updates = {
         RESTART_HOUR: document.getElementById('restartHour').value,
         VIDEO_BITRATE: document.getElementById('videoBitrate').value,
@@ -282,139 +230,77 @@ document.getElementById('configForm').addEventListener('submit', async (e) => {
         VIDEO_FPS: document.getElementById('videoFps').value,
         VIDEO_SCALE: document.getElementById('videoScale').value
     };
-    
+
     try {
         const response = await fetch(`/api/channel/${currentChannel}/config`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ updates })
         });
-        
         const data = await response.json();
-        
         if (data.success) {
-            alert('Configuração salva com sucesso!');
+            document.getElementById('configSaveMessage').textContent = 'Configuração salva com sucesso.';
+            document.getElementById('lastConfigSaved').textContent = new Date(data.last_saved).toLocaleString();
+            loadChannelHistory();
         } else {
-            alert('Erro ao salvar configuração');
+            document.getElementById('configSaveMessage').textContent = data.error || 'Erro ao salvar configuração.';
         }
     } catch (error) {
         console.error('Erro ao salvar configuração:', error);
-        alert('Erro ao salvar configuração');
+        document.getElementById('configSaveMessage').textContent = 'Erro ao salvar configuração.';
     }
 });
 
-// Encerra canal
-async function stopChannel() {
+async function loadChannelHistory() {
     if (!currentChannel) return;
-    if (!confirm(`Tem certeza que deseja encerrar a live do canal ${currentChannel}?`)) return;
-    
+
     try {
-        const response = await fetch(`/api/channel/${currentChannel}/stop`, {
-            method: 'POST'
-        });
-        
+        const response = await fetch(`/api/channel/${currentChannel}/config/history`);
         const data = await response.json();
-        
-        if (data.success) {
-            alert('Comando de encerramento enviado!');
-            setTimeout(loadChannelStatus, 2000);
-        } else {
-            alert('Erro ao encerrar live');
-        }
+        renderHistoryList(data.history || []);
     } catch (error) {
-        console.error('Erro ao encerrar canal:', error);
-        alert('Erro ao encerrar live');
+        console.error('Erro ao carregar histórico de configuração:', error);
     }
 }
 
-// Reinicia canal (comportamento igual ao YouTube Studio: encerra completamente e inicia nova transmissão)
-async function restartChannel() {
-    if (!currentChannel) return;
-    if (!confirm(`Tem certeza que deseja reiniciar a live do canal ${currentChannel}?\n\nA transmissão atual será encerrada completamente e uma nova transmissão será iniciada em alguns segundos.`)) return;
-    
-    const statusValue = document.getElementById('statusValue');
-    const originalStatus = statusValue.textContent;
-    
-    try {
-        // Mostra feedback imediato
-        statusValue.textContent = '⏳ Encerrando transmissão...';
-        
-        const response = await fetch(`/api/channel/${currentChannel}/restart`, {
-            method: 'POST'
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            // Atualiza status para mostrar que está reiniciando
-            statusValue.textContent = '⏳ Reiniciando... (encerrando transmissão atual)';
-            
-            // Aguarda alguns segundos (tempo para encerrar completamente)
-            setTimeout(() => {
-                statusValue.textContent = '⏳ Iniciando nova transmissão...';
-            }, 3000);
-            
-            // Aguarda mais tempo antes de verificar status (tempo para nova transmissão iniciar)
-            setTimeout(() => {
-                loadChannelStatus();
-                // Continua verificando até a live voltar
-                let attempts = 0;
-                const checkInterval = setInterval(async () => {
-                    attempts++;
-                    await loadChannelStatus();
-                    
-                    // Verifica se voltou online ou se já tentou muitas vezes
-                    const currentStatus = document.getElementById('statusValue').textContent;
-                    if (currentStatus.includes('🟢 Online') || attempts >= 10) {
-                        clearInterval(checkInterval);
-                        if (attempts >= 10 && !currentStatus.includes('🟢 Online')) {
-                            statusValue.textContent = originalStatus;
-                        }
-                    }
-                }, 3000);
-            }, 8000);
-        } else {
-            statusValue.textContent = originalStatus;
-            alert('Erro ao reiniciar live: ' + (data.error || 'Erro desconhecido'));
-        }
-    } catch (error) {
-        console.error('Erro ao reiniciar canal:', error);
-        statusValue.textContent = originalStatus;
-        alert('Erro ao reiniciar live');
+function renderHistoryList(history) {
+    const historyContainer = document.getElementById('configHistoryList');
+    historyContainer.innerHTML = '';
+    if (!history.length) {
+        historyContainer.innerHTML = '<li>Nenhuma atualização registrada.</li>';
+        return;
     }
+
+    history.forEach(entry => {
+        const item = document.createElement('li');
+        const date = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'Data indisponível';
+        const keys = Object.keys(entry.updates || {});
+        item.innerHTML = `
+            <strong>${date}</strong>
+            <span>${keys.length ? keys.join(', ') : 'Sem alterações registradas'}</span>
+        `;
+        historyContainer.appendChild(item);
+    });
 }
 
-// Carrega logs
 async function loadChannelLogs() {
     if (!currentChannel) return;
-    
+
     try {
         const response = await fetch(`/api/channel/${currentChannel}/logs?lines=100`);
         const data = await response.json();
-        
-        const logsContent = document.getElementById('logsContent');
-        logsContent.innerHTML = '';
-        
-        data.logs.forEach(line => {
-            appendLogLine(line);
-        });
-        
-        // Scroll para o final
-        logsContent.scrollTop = logsContent.scrollHeight;
+        const logsContainer = document.getElementById('logsContent');
+        logsContainer.innerHTML = '';
+        appendLogs(data.logs || []);
     } catch (error) {
         console.error('Erro ao carregar logs:', error);
     }
 }
 
-// Adiciona linha de log
 function appendLogLine(line) {
     const logsContent = document.getElementById('logsContent');
     const logLine = document.createElement('div');
     logLine.className = 'log-line';
-    
-    // Detecta tipo de log
     if (line.includes('[ERRO]') || line.includes('ERROR')) {
         logLine.classList.add('error');
     } else if (line.includes('[WARN]') || line.includes('WARNING')) {
@@ -422,73 +308,83 @@ function appendLogLine(line) {
     } else if (line.includes('[INFO]') || line.includes('INFO')) {
         logLine.classList.add('info');
     }
-    
     logLine.textContent = line.trim();
     logsContent.appendChild(logLine);
-    
-    // Scroll para o final
     logsContent.scrollTop = logsContent.scrollHeight;
 }
 
-// Adiciona múltiplas linhas de log
 function appendLogs(lines) {
     lines.forEach(line => appendLogLine(line));
 }
 
-// Limpa logs
 function clearLogs() {
     document.getElementById('logsContent').innerHTML = '';
 }
 
-// Formata tempo online
-function formatUptime(seconds) {
-    if (!seconds) return '0s';
-    
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    
-    if (hours > 0) {
-        return `${hours}h ${minutes}m ${secs}s`;
-    } else if (minutes > 0) {
-        return `${minutes}m ${secs}s`;
-    } else {
-        return `${secs}s`;
+async function stopChannel() {
+    if (!currentChannel) return;
+    if (!confirm(`Deseja encerrar a live ${currentChannel}?`)) return;
+
+    try {
+        const response = await fetch(`/api/channel/${currentChannel}/stop`, { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            setControlStatus('Comando de encerramento enviado!');
+            setTimeout(loadChannelStatus, 2000);
+        } else {
+            setControlStatus('Erro ao encerrar live.', 'error');
+        }
+    } catch (error) {
+        console.error('Erro ao encerrar canal:', error);
+        setControlStatus('Erro ao encerrar live.', 'error');
     }
 }
 
-// Carrega informações do servidor (IP público)
-async function loadServerInfo() {
+async function restartChannel() {
+    if (!currentChannel) return;
+    if (!confirm(`Deseja reiniciar a live ${currentChannel}? O stream será encerrado e iniciado novamente.`)) return;
+
     try {
-        const response = await fetch('/api/server-info');
+        setControlStatus('Reinicializando stream...');
+        const response = await fetch(`/api/channel/${currentChannel}/restart`, { method: 'POST' });
         const data = await response.json();
-        
-        const serverInfo = document.getElementById('serverInfo');
-        const publicIpLink = document.getElementById('publicIpLink');
-        
-        if (data.public_ip && data.public_ip !== 'N/A') {
-            serverInfo.style.display = 'flex';
-            publicIpLink.textContent = data.public_ip;
-            publicIpLink.href = data.public_url;
-            publicIpLink.title = `Acessar dashboard em ${data.public_url}`;
+        if (data.success) {
+            setControlStatus('Live reiniciada. Aguardando nova transmissão...');
+            setTimeout(loadChannelStatus, 5000);
         } else {
-            // Tenta obter IP público diretamente
-            try {
-                const ipResponse = await fetch('/api/public-ip');
-                const ipData = await ipResponse.json();
-                
-                if (ipData.success) {
-                    serverInfo.style.display = 'flex';
-                    publicIpLink.textContent = ipData.ip;
-                    publicIpLink.href = ipData.dashboard_url;
-                    publicIpLink.title = `Acessar dashboard em ${ipData.dashboard_url}`;
-                }
-            } catch (error) {
-                console.error('Erro ao obter IP público:', error);
-            }
+            setControlStatus('Erro ao reiniciar live.', 'error');
         }
     } catch (error) {
-        console.error('Erro ao carregar informações do servidor:', error);
+        console.error('Erro ao reiniciar canal:', error);
+        setControlStatus('Erro ao reiniciar live.', 'error');
     }
+}
+
+function setControlStatus(message, tone = 'info') {
+    const controlStatus = document.getElementById('controlStatus');
+    controlStatus.textContent = message;
+    controlStatus.style.color = tone === 'error' ? '#ef4444' : '#1f2937';
+}
+
+function updateConfigFileReference() {
+    const ref = document.getElementById('configFileReference');
+    if (currentChannel) {
+        ref.textContent = `config/${currentChannel}.env`;
+    }
+}
+
+function loadServerInfo() {
+    fetch('/api/server-info')
+        .then(res => res.json())
+        .then(data => {
+            const serverInfo = document.getElementById('serverInfo');
+            const publicIpLink = document.getElementById('publicIpLink');
+            if (data.public_ip && data.public_ip !== 'N/A') {
+                serverInfo.style.display = 'flex';
+                publicIpLink.textContent = data.public_ip;
+                publicIpLink.href = data.public_url;
+            }
+        })
+        .catch(error => console.error('Erro ao carregar IP:', error));
 }
 

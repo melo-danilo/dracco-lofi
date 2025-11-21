@@ -10,7 +10,7 @@ import threading
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, abort, send_from_directory
 from flask_socketio import SocketIO, emit
 from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
@@ -31,6 +31,10 @@ CONTROL_DIR = Path('/app/control')
 CONTROL_DIR.mkdir(parents=True, exist_ok=True)
 STATS_DIR = Path('/app/stats')
 STATS_DIR.mkdir(parents=True, exist_ok=True)
+PREVIEW_DIR = Path('/app/preview')
+PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_HISTORY_DIR = Path('/app/config_history')
+CONFIG_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
 # Estado das lives
 lives_status = {}
@@ -281,6 +285,46 @@ def validate_config_value(key, value):
     
     return True, None
 
+def load_config_map(config_file):
+    """Lê um arquivo .env e retorna um dicionário de chave/valor limpos"""
+    config = {}
+    if config_file.exists():
+        try:
+            with open(config_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        config[key.strip()] = value.strip()
+        except:
+            pass
+    return config
+
+def append_config_history(channel_name, updates, snapshot=None):
+    if not updates:
+        return
+
+    history_file = CONFIG_HISTORY_DIR / f"{channel_name}.json"
+    history = []
+    if history_file.exists():
+        try:
+            history = json.loads(history_file.read_text())
+        except:
+            history = []
+
+    entry = {
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
+        'updates': updates,
+        'snapshot': snapshot or {}
+    }
+    history.append(entry)
+    history = history[-20:]
+
+    try:
+        history_file.write_text(json.dumps(history, indent=2))
+    except Exception as e:
+        app.logger.warning(f"Não foi possível salvar histórico de config para {channel_name}: {e}")
+
 @app.route('/api/channel/<channel_name>/config', methods=['GET', 'POST'])
 @login_required
 def channel_config(channel_name):
@@ -288,60 +332,92 @@ def channel_config(channel_name):
     config_file = Path(f'/app/config/{channel_name}.env')
     
     if request.method == 'GET':
-        config = {}
+        config = load_config_map(config_file)
+        last_saved = None
         if config_file.exists():
-            with open(config_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        config[key.strip()] = value.strip()
-        return jsonify({'config': config})
+            try:
+                last_saved = datetime.fromtimestamp(config_file.stat().st_mtime).isoformat()
+            except:
+                last_saved = None
+        return jsonify({'config': config, 'last_saved': last_saved})
     
-    else:  # POST
-        data = request.get_json()
-        updates = data.get('updates', {})
-        
-        # Valida todos os valores antes de salvar
-        for key, value in updates.items():
-            is_valid, error_message = validate_config_value(key, value)
-            if not is_valid:
-                return jsonify({'success': False, 'error': error_message}), 400
-        
-        # Lê configuração atual
-        lines = []
-        if config_file.exists():
-            with open(config_file, 'r') as f:
-                lines = f.readlines()
-        
-        # Atualiza valores
-        updated_keys = set()
-        new_lines = []
-        for line in lines:
-            original_line = line
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key = line.split('=', 1)[0].strip()
-                if key in updates:
-                    new_lines.append(f"{key}={updates[key]}\n")
-                    updated_keys.add(key)
-                    continue
-            new_lines.append(original_line)
-        
-        # Adiciona novas chaves
-        for key, value in updates.items():
-            if key not in updated_keys:
-                new_lines.append(f"{key}={value}\n")
-        
-        # Salva arquivo
-        with open(config_file, 'w') as f:
-            f.writelines(new_lines)
-        
-        # Envia comando de reload
-        reload_file = CONTROL_DIR / f"{channel_name}_reload"
-        reload_file.touch()
-        
-        return jsonify({'success': True, 'message': 'Configuração atualizada'})
+    data = request.get_json()
+    updates = data.get('updates', {})
+    
+    # Valida todos os valores antes de salvar
+    for key, value in updates.items():
+        is_valid, error_message = validate_config_value(key, value)
+        if not is_valid:
+            return jsonify({'success': False, 'error': error_message}), 400
+    
+    # Lê configuração atual
+    lines = []
+    if config_file.exists():
+        with open(config_file, 'r') as f:
+            lines = f.readlines()
+    
+    # Atualiza valores
+    updated_keys = set()
+    new_lines = []
+    for line in lines:
+        original_line = line
+        line = line.strip()
+        if line and not line.startswith('#') and '=' in line:
+            key = line.split('=', 1)[0].strip()
+            if key in updates:
+                new_lines.append(f"{key}={updates[key]}\n")
+                updated_keys.add(key)
+                continue
+        new_lines.append(original_line)
+    
+    # Adiciona novas chaves
+    for key, value in updates.items():
+        if key not in updated_keys:
+            new_lines.append(f"{key}={value}\n")
+    
+    # Salva arquivo
+    with open(config_file, 'w') as f:
+        f.writelines(new_lines)
+    
+    # Envia comando de reload
+    reload_file = CONTROL_DIR / f"{channel_name}_reload"
+    reload_file.touch()
+    os.sync()
+
+    config_snapshot = load_config_map(config_file)
+    append_config_history(channel_name, updates, config_snapshot)
+    last_saved = datetime.utcnow().isoformat()
+
+    return jsonify({
+        'success': True, 
+        'message': 'Configuração atualizada',
+        'snapshot': config_snapshot,
+        'last_saved': last_saved
+    })
+
+
+@app.route('/api/channel/<channel_name>/config/history')
+@login_required
+def channel_config_history(channel_name):
+    """Retorna o histórico de atualizações de configuração"""
+    history_file = CONFIG_HISTORY_DIR / f"{channel_name}.json"
+    history = []
+    if history_file.exists():
+        try:
+            history = json.loads(history_file.read_text())
+        except:
+            history = []
+    return jsonify({'history': list(reversed(history))})
+
+
+@app.route('/preview/<channel_name>/<path:filename>')
+@login_required
+def stream_preview_file(channel_name, filename):
+    """Serviço que entrega o preview gerado pelo FFmpeg (HLS)"""
+    preview_path = PREVIEW_DIR / channel_name
+    if not preview_path.exists():
+        return abort(404)
+    return send_from_directory(preview_path, filename, conditional=True)
 
 @app.route('/api/channel/<channel_name>/logs')
 @login_required
@@ -497,24 +573,32 @@ def get_channel_status(channel_name):
         'current_video': 'N/A',
         'streaming': False,  # Indica se está realmente transmitindo
         'last_activity': None,
-        'youtube_live_url': None  # URL do YouTube Live para preview
+        'youtube_live_url': None,  # URL do YouTube Live para preview
+        'preview_ready': False,
+        'preview_url': None,
+        'config_values': {},
+        'config_last_saved': None
     }
     
-    # Lê URL do YouTube Live do arquivo de configuração
+    # Lê configuração e define o preview
     if config_file.exists():
+        config_map = load_config_map(config_file)
+        status['config_values'] = config_map
         try:
-            with open(config_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith('YOUTUBE_LIVE_URL=') and not line.startswith('#'):
-                        status['youtube_live_url'] = line.split('=', 1)[1].strip().strip('"').strip("'")
-                    elif line.startswith('YOUTUBE_CHANNEL_ID=') and not line.startswith('#'):
-                        channel_id = line.split('=', 1)[1].strip().strip('"').strip("'")
-                        # Constrói URL do YouTube Live se tiver channel ID
-                        if channel_id and not status['youtube_live_url']:
-                            status['youtube_live_url'] = f"https://www.youtube.com/embed/live_stream?channel={channel_id}"
+            status['config_last_saved'] = datetime.fromtimestamp(config_file.stat().st_mtime).isoformat()
         except:
-            pass
+            status['config_last_saved'] = None
+
+        youtube_url = config_map.get('YOUTUBE_LIVE_URL')
+        channel_id = config_map.get('YOUTUBE_CHANNEL_ID')
+        if youtube_url:
+            status['youtube_live_url'] = youtube_url.strip().strip('"').strip("'")
+        elif channel_id:
+            channel_id = channel_id.strip().strip('"').strip("'")
+            if channel_id:
+                status['youtube_live_url'] = f"https://www.youtube.com/embed/live_stream?channel={channel_id}"
+    else:
+        status['config_values'] = {}
     
     # Primeiro, carrega estatísticas do arquivo (atualizado pelo entrypoint)
     if stats_file.exists():
@@ -622,6 +706,11 @@ def get_channel_status(channel_name):
     if not log_file.exists() and status['running']:
         status['streaming'] = True
     
+    preview_manifest = PREVIEW_DIR / channel_name / 'index.m3u8'
+    if preview_manifest.exists():
+        status['preview_ready'] = True
+        status['preview_url'] = url_for('stream_preview_file', channel_name=channel_name, filename='index.m3u8')
+
     return status
 
 @socketio.on('connect')

@@ -5,6 +5,10 @@ APP_DIR="/app"
 CHANNEL_NAME="${CHANNEL_NAME:-}"
 CHANNEL_CONFIG_FILE="${CHANNEL_CONFIG_FILE:-}"
 PREVIEW="${PREVIEW:-0}"
+PREVIEW_DIR="$APP_DIR/preview"
+PREVIEW_CHANNEL_DIR="$PREVIEW_DIR/${CHANNEL_NAME}"
+PREVIEW_MANIFEST="$PREVIEW_CHANNEL_DIR/index.m3u8"
+LAST_STREAM_START_TIME=0
 
 if [[ -n "$CHANNEL_NAME" ]]; then
   CHANNEL_CONFIG_FILE="${CHANNEL_CONFIG_FILE:-$APP_DIR/config/${CHANNEL_NAME}.env}"
@@ -30,7 +34,7 @@ CONTROL_DIR="$APP_DIR/control"
 STREAM_START_TIME=""
 
 # Cria diretórios necessários
-mkdir -p "$APP_DIR/logs" "$APP_DIR/stats" "$CONTROL_DIR"
+mkdir -p "$APP_DIR/logs" "$APP_DIR/stats" "$CONTROL_DIR" "$PREVIEW_DIR"
 
 VIDEO_SCALE="${VIDEO_SCALE:-1920:1080}"
 VIDEO_FPS="${VIDEO_FPS:-30}"
@@ -65,13 +69,40 @@ log() {
   echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
 }
 
+# Calcula o timestamp ISO do próximo reinício baseado em RESTART_HOUR
+compute_next_restart_iso() {
+  local target_hour
+  target_hour=$(printf "%02d" "$RESTART_HOUR")
+  local today=$(date '+%Y-%m-%d')
+  local target="${today} ${target_hour}:00:00"
+  local target_epoch
+  target_epoch=$(date -d "$target" +%s 2>/dev/null || echo "")
+  local now_epoch
+  now_epoch=$(date +%s)
+
+  if [[ -z "$target_epoch" ]]; then
+    echo "N/A"
+    return
+  fi
+
+  if (( target_epoch <= now_epoch )); then
+    target_epoch=$(date -d "$target +1 day" +%s 2>/dev/null || echo "")
+  fi
+
+  if [[ -z "$target_epoch" ]]; then
+    echo "N/A"
+  else
+    date -d "@$target_epoch" --iso-8601=seconds
+  fi
+}
+
 # Função para atualizar estatísticas
 update_stats() {
   local uptime=0
   if [[ -n "$STREAM_START_TIME" ]] && [[ "$STREAM_START_TIME" =~ ^[0-9]+$ ]]; then
     uptime=$(($(date +%s) - STREAM_START_TIME))
   fi
-  
+
   local status="stopped"
   if [[ -f "$FFMPEG_PID_FILE" ]]; then
     local pid=$(cat "$FFMPEG_PID_FILE" 2>/dev/null || echo "")
@@ -79,34 +110,55 @@ update_stats() {
       status="running"
     fi
   fi
-  
+
   local current_video_name="N/A"
   if [[ -n "${VIDEO_FILE:-}" ]] && [[ -f "${VIDEO_FILE}" ]]; then
     current_video_name=$(basename "$VIDEO_FILE")
   fi
-  
+
   # Conta vídeos do canal
   local video_count=0
   shopt -s nullglob
   local channel_videos=("$VIDEO_DIR/${CHANNEL_NAME}_"*.mp4)
   shopt -u nullglob
   video_count=${#channel_videos[@]}
-  
-  # Se não encontrou vídeos com padrão, verifica padrão antigo
+
   if [[ $video_count -eq 0 ]] && [[ -f "$VIDEO_DIR/${CHANNEL_NAME}.mp4" ]]; then
     video_count=1
   fi
-  
+
+  local preview_flag="false"
+  if [[ -f "$PREVIEW_MANIFEST" ]]; then
+    preview_flag="true"
+  fi
+
+  local last_restart="N/A"
+  if [[ "$LAST_STREAM_START_TIME" =~ ^[0-9]+$ ]]; then
+    last_restart=$(date -d "@$LAST_STREAM_START_TIME" --iso-8601=seconds)
+  fi
+
+  local next_restart
+  next_restart=$(compute_next_restart_iso)
+
   cat > "$STATS_FILE" <<EOF
 {
   "status": "$status",
   "uptime": $uptime,
   "current_video": "$current_video_name",
   "video_count": $video_count,
-  "last_restart": "$(date '+%Y-%m-%dT%H:%M:%S%z')",
-  "next_restart": "N/A"
+  "bitrate": "$VIDEO_BITRATE",
+  "fps": "$VIDEO_FPS",
+  "resolution": "$VIDEO_SCALE",
+  "preview_ready": $preview_flag,
+  "last_restart": "$last_restart",
+  "next_restart": "$next_restart"
 }
 EOF
+}
+
+prepare_preview_dir() {
+  rm -rf "$PREVIEW_CHANNEL_DIR"
+  mkdir -p "$PREVIEW_CHANNEL_DIR"
 }
 
 start_healthcheck_server() {
@@ -316,11 +368,17 @@ stop_ffmpeg() {
 cleanup() {
   stop_ffmpeg
   rm -f "$PLAYLIST_FILE" "$CONCAT_LIST" "$FFMPEG_PID_FILE"
+  rm -rf "$PREVIEW_CHANNEL_DIR"
   kill "$SERVER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
 RTMP_URL="$(build_rtmp_url || echo "")"
+
+if [[ -z "$RTMP_URL" ]]; then
+  echo "Erro: RTMP_URL inválido. Verifique YOUTUBE_STREAM_KEY e YOUTUBE_RTMP_BASE."
+  exit 1
+fi
 
 [[ ! -d "$MP3_DIR" ]] && echo "Erro: MP3_DIR inválido" && exit 1
 [[ ! -d "$VIDEO_DIR" ]] && echo "Erro: VIDEO_DIR inválido" && exit 1
@@ -401,24 +459,22 @@ while true; do
   # Garante que não há processos FFmpeg rodando antes de iniciar novo
   stop_ffmpeg
   
+  prepare_preview_dir
+
   log "INFO" "Iniciando stream com vídeo: $(basename "$VIDEO_FILE")"
   STREAM_START_TIME=$(date +%s)
+  LAST_STREAM_START_TIME="$STREAM_START_TIME"
   update_stats
   
-  # Inicia o FFmpeg em background e salva o PID
-  if [[ "$PREVIEW" == "1" ]]; then
-    ffmpeg -re -stream_loop -1 -i "$PLAYLIST_FILE" \
-      -stream_loop -1 -i "$VIDEO_FILE" \
-      "${FF_ARGS[@]}" -f mp4 -y "/tmp/preview_${CHANNEL_NAME}.mp4" 2>&1 | while IFS= read -r line; do
-        log "FFMPEG" "$line"
-      done &
-  else
-    ffmpeg -re -stream_loop -1 -i "$PLAYLIST_FILE" \
-      -stream_loop -1 -i "$VIDEO_FILE" \
-      "${FF_ARGS[@]}" -f flv "$RTMP_URL" 2>&1 | while IFS= read -r line; do
-        log "FFMPEG" "$line"
-      done &
-  fi
+  # Inicia o FFmpeg em background (envia para YouTube e gera preview HLS)
+  local tee_target="[f=flv]${RTMP_URL}|[f=hls:hls_time=2:hls_list_size=3:hls_flags=delete_segments+append_list+omit_endlist:hls_allow_cache=0]${PREVIEW_MANIFEST}"
+  ffmpeg -re -stream_loop -1 -i "$PLAYLIST_FILE" \
+    -stream_loop -1 -i "$VIDEO_FILE" \
+    -map 1:v -map 0:a \
+    "${FF_ARGS[@]}" \
+    -f tee "$tee_target" 2>&1 | while IFS= read -r line; do
+      log "FFMPEG" "$line"
+    done &
   
   FFMPEG_PID=$!
   echo "$FFMPEG_PID" > "$FFMPEG_PID_FILE"

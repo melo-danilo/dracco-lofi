@@ -6,124 +6,175 @@
     <title>Dashboard - Lo-Fi Lives</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
     <div class="dashboard-container">
         <header class="dashboard-header">
-            <div class="header-left">
+            <div>
                 <h1>🎵 Dashboard Lo-Fi</h1>
-                <span class="user-info">Olá, <strong id="username">{{ session.username }}</strong></span>
+                <p class="user-info">Olá, <strong id="username">{{ session.username }}</strong></p>
             </div>
-            <div class="header-right">
+            <div class="header-actions">
                 <div class="server-info" id="serverInfo" style="display: none;">
                     <span class="ip-label">IP Público:</span>
                     <a href="#" id="publicIpLink" target="_blank" class="ip-link">Carregando...</a>
                     <button class="btn-refresh-ip" onclick="loadServerInfo()" title="Atualizar IP">🔄</button>
                 </div>
+                <span class="header-divider"></span>
                 <a href="/logout" class="btn-logout">Sair</a>
             </div>
         </header>
         
         <main class="dashboard-main">
-            <div class="channels-section">
-                <div class="section-header">
-                    <h2>Canais</h2>
+            <aside class="channels-panel">
+                <div class="panel-heading">
+                    <div>
+                        <h2>Canais</h2>
+                        <p class="panel-subtitle">Controle multi-canais em um só lugar</p>
+                    </div>
                     <button class="btn-refresh" onclick="loadChannels()">🔄 Atualizar</button>
                 </div>
-                
-                <div id="channelsList" class="channels-grid">
+                <div id="channelsList" class="channels-list">
                     <!-- Canais serão carregados aqui -->
                 </div>
-            </div>
+            </aside>
             
-            <div class="details-section" id="detailsSection" style="display: none;">
-                <div class="section-header">
-                    <h2 id="channelTitle">Detalhes do Canal</h2>
-                    <button class="btn-close" onclick="closeDetails()">✕</button>
-                </div>
-                
-                <div class="tabs">
-                    <button class="tab-btn active" onclick="showTab('status')">Status</button>
-                    <button class="tab-btn" onclick="showTab('preview')">Preview</button>
-                    <button class="tab-btn" onclick="showTab('config')">Configuração</button>
-                    <button class="tab-btn" onclick="showTab('logs')">Logs</button>
-                </div>
-                
-                <div class="tab-content" id="tabStatus">
-                    <div class="status-grid">
-                        <div class="status-card">
-                            <div class="status-label">Status</div>
-                            <div class="status-value" id="statusValue">-</div>
-                        </div>
-                        <div class="status-card">
-                            <div class="status-label">Tempo Online</div>
-                            <div class="status-value" id="uptimeValue">-</div>
-                        </div>
-                        <div class="status-card">
-                            <div class="status-label">Vídeo Atual</div>
-                            <div class="status-value" id="currentVideo">-</div>
-                        </div>
-                        <div class="status-card">
-                            <div class="status-label">Próximo Reinício</div>
-                            <div class="status-value" id="nextRestart">-</div>
-                        </div>
+            <section class="details-panel" id="detailsPanel">
+                <header class="details-header">
+                    <div>
+                        <p class="status-pill" id="channelStatusBadge">Offline</p>
+                        <h2 id="channelDetailTitle">Selecione um canal</h2>
+                        <p class="channel-subtitle" id="channelSubtitle">Status, preview e configuração do stream</p>
                     </div>
-                    
-                    <div class="actions">
-                        <button class="btn-action btn-stop" onclick="stopChannel()">⏹ Encerrar Live</button>
-                        <button class="btn-action btn-restart" onclick="restartChannel()">🔄 Reiniciar Live</button>
+                    <div class="details-actions">
+                        <button class="btn-refresh-secondary" onclick="loadChannelStatus()">Atualizar status</button>
+                        <button class="btn-close" onclick="closeDetails()">Fechar</button>
                     </div>
+                </header>
+
+                <div class="metrics-grid">
+                    <article class="metric-card">
+                        <p class="metric-label">Status da Transmissão</p>
+                        <p class="metric-value" id="metricStatus">-</p>
+                        <p class="metric-helper" id="metricStatusDetail">Sem dados</p>
+                    </article>
+                    <article class="metric-card">
+                        <p class="metric-label">Tempo online</p>
+                        <p class="metric-value" id="metricUptime">-</p>
+                        <p class="metric-helper">Desde o último restart</p>
+                    </article>
+                    <article class="metric-card">
+                        <p class="metric-label">Vídeo em exibição</p>
+                        <p class="metric-value" id="metricVideo">-</p>
+                        <p class="metric-helper">Quantidade disponível: <span id="metricVideoCount">0</span></p>
+                    </article>
+                    <article class="metric-card">
+                        <p class="metric-label">Próximo reinício</p>
+                        <p class="metric-value" id="metricNextRestart">-</p>
+                        <p class="metric-helper">Baseado na hora configurada</p>
+                    </article>
                 </div>
-                
-                <div class="tab-content" id="tabPreview" style="display: none;">
-                    <div class="preview-container">
-                        <div id="previewContent" class="preview-content">
-                            <div class="preview-placeholder">
-                                <p>Carregando preview...</p>
+
+                <div class="preview-controls">
+                    <div class="preview-card">
+                        <div class="preview-header">
+                            <div>
+                                <p class="preview-title">Preview da saída enviada ao YouTube</p>
+                                <p class="preview-subtitle" id="previewSubtitle">Sincronizado com a transmissão ao vivo</p>
+                            </div>
+                            <span class="preview-indicator" id="previewStatus">Aguardando preview</span>
+                        </div>
+                        <div class="preview-video-wrapper">
+                            <video id="livePreviewVideo" class="preview-video" autoplay muted playsinline controls poster="">
+                                Seu navegador não suporta HLS.
+                            </video>
+                            <div class="preview-fallback" id="previewFallback">
+                                Aguardando o primeiro quadro do FFmpeg...
                             </div>
                         </div>
-                        <div class="preview-info">
-                            <p id="previewInfo" class="preview-info-text">Configure YOUTUBE_LIVE_URL ou YOUTUBE_CHANNEL_ID no arquivo de configuração para ver o preview.</p>
+                        <p class="preview-hint" id="previewHint">O preview acompanha exatamente o feed enviado ao YouTube (via HLS gerado localmente).</p>
+                    </div>
+
+                    <div class="control-card">
+                        <p class="panel-title">Controles</p>
+                        <div class="control-actions">
+                            <button class="btn-action btn-stop" onclick="stopChannel()">⏹ Encerrar Live</button>
+                            <button class="btn-action btn-restart" onclick="restartChannel()">🔄 Reiniciar Live</button>
+                        </div>
+                        <p id="controlStatus" class="control-status">Nenhum comando enviado ainda.</p>
+                        <div class="config-summary">
+                            <p>Último salvamento: <strong id="lastConfigSaved">-</strong></p>
+                            <p>Configuração persistida automaticamente no arquivo <code id="configFileReference">config/.env</code>.</p>
                         </div>
                     </div>
                 </div>
-                
-                <div class="tab-content" id="tabConfig" style="display: none;">
+
+                <section class="config-section">
+                    <div class="section-headline">
+                        <div>
+                            <h3>Configuração persistente</h3>
+                            <p class="panel-subtitle">Todos os ajustes ficam salvos no servidor</p>
+                        </div>
+                        <button class="btn-refresh-secondary" onclick="loadChannelConfig()">Atualizar</button>
+                    </div>
+
                     <form id="configForm" class="config-form">
-                        <div class="form-group">
-                            <label>Hora de Reinício (0-23)</label>
-                            <input type="number" id="restartHour" min="0" max="23" step="1">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="restartHour">Hora de reinício (0-23)</label>
+                                <input type="number" id="restartHour" min="0" max="23" step="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="videoBitrate">Bitrate de vídeo</label>
+                                <input type="text" id="videoBitrate" placeholder="4500k">
+                            </div>
+                            <div class="form-group">
+                                <label for="audioBitrate">Bitrate de áudio</label>
+                                <input type="text" id="audioBitrate" placeholder="160k">
+                            </div>
+                            <div class="form-group">
+                                <label for="videoFps">FPS</label>
+                                <input type="number" id="videoFps" min="24" max="60" step="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="videoScale">Resolução</label>
+                                <input type="text" id="videoScale" placeholder="1920:1080">
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label>Bitrate de Vídeo</label>
-                            <input type="text" id="videoBitrate" placeholder="4500k">
+                        <div class="form-footer">
+                            <button type="submit" class="btn-save">💾 Salvar configuração</button>
+                            <span id="configSaveMessage" class="config-message"></span>
                         </div>
-                        <div class="form-group">
-                            <label>Bitrate de Áudio</label>
-                            <input type="text" id="audioBitrate" placeholder="160k">
-                        </div>
-                        <div class="form-group">
-                            <label>FPS</label>
-                            <input type="number" id="videoFps" min="24" max="60" step="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Resolução</label>
-                            <input type="text" id="videoScale" placeholder="1920:1080">
-                        </div>
-                        <button type="submit" class="btn-save">💾 Salvar Configuração</button>
                     </form>
-                </div>
-                
-                <div class="tab-content" id="tabLogs" style="display: none;">
-                    <div class="logs-container">
-                        <div class="logs-header">
-                            <span>Logs em tempo real</span>
-                            <button class="btn-clear" onclick="clearLogs()">Limpar</button>
+
+                    <div class="history-section">
+                        <div class="history-header">
+                            <h4>Histórico de atualizações</h4>
+                            <button class="btn-history" onclick="loadChannelHistory()">Atualizar histórico</button>
                         </div>
-                        <div id="logsContent" class="logs-content"></div>
+                        <ul class="history-list" id="configHistoryList">
+                            <!-- Histórico será preenchido aqui -->
+                        </ul>
                     </div>
-                </div>
-            </div>
+                </section>
+
+                <section class="logs-section">
+                    <div class="logs-header">
+                        <div>
+                            <h3>Logs em tempo real</h3>
+                            <p class="panel-subtitle">Saída completa do FFmpeg</p>
+                        </div>
+                        <div class="logs-actions">
+                            <button class="btn-history" onclick="loadChannelLogs()">Atualizar</button>
+                            <button class="btn-history" onclick="clearLogs()">Limpar</button>
+                        </div>
+                    </div>
+                    <div id="logsContent" class="logs-content">
+                        <!-- Logs serão renderizados aqui -->
+                    </div>
+                </section>
+            </section>
         </main>
     </div>
     
