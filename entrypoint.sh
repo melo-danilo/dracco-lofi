@@ -467,7 +467,7 @@ while true; do
   update_stats
   
   # Inicia o FFmpeg em background (envia para YouTube e gera preview HLS)
-  local tee_target="[f=flv]${RTMP_URL}|[f=hls:hls_time=2:hls_list_size=3:hls_flags=delete_segments+append_list+omit_endlist:hls_allow_cache=0]${PREVIEW_MANIFEST}"
+  tee_target="[f=flv]${RTMP_URL}|[f=hls:hls_time=2:hls_list_size=3:hls_flags=delete_segments+append_list+omit_endlist:hls_allow_cache=0]${PREVIEW_MANIFEST}"
   ffmpeg -re -stream_loop -1 -i "$PLAYLIST_FILE" \
     -stream_loop -1 -i "$VIDEO_FILE" \
     -map 1:v -map 0:a \
@@ -488,7 +488,7 @@ while true; do
       
       # Verifica comandos de controle
       check_control_commands
-      local control_result=$?
+      control_result=$?
       
       if [[ $control_result -eq 1 ]]; then
         # Stop - encerra completamente
@@ -512,7 +512,7 @@ while true; do
     update_stats
     
     # Se for hora de reiniciar, sai do loop interno
-    local current_datetime_hour=$(date '+%Y-%m-%d-%H')
+    current_datetime_hour=$(date '+%Y-%m-%d-%H')
     if should_restart && [[ "$LAST_RESTART_TIME" != "$current_datetime_hour" ]]; then
       log "INFO" "Detectada hora de reinício durante monitoramento"
       stop_ffmpeg
