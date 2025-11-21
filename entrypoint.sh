@@ -29,6 +29,7 @@ PLAYLIST_FILE="$APP_DIR/playlist_temp.mp3"
 CONCAT_LIST="$APP_DIR/concat_list.txt"
 FFMPEG_PID_FILE="$APP_DIR/ffmpeg_${CHANNEL_NAME}.pid"
 LOG_FILE="$APP_DIR/logs/${CHANNEL_NAME}.log"
+EVENT_LOG_FILE="$APP_DIR/logs/${CHANNEL_NAME}.events.log"
 STATS_FILE="$APP_DIR/stats/${CHANNEL_NAME}.json"
 CONTROL_DIR="$APP_DIR/control"
 STREAM_START_TIME=""
@@ -67,6 +68,7 @@ log() {
   local message="$*"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
   echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+  printf "[%s] [%s] %s\n" "$timestamp" "$level" "$message" >> "$EVENT_LOG_FILE"
 }
 
 # Calcula o timestamp ISO do próximo reinício baseado em RESTART_HOUR

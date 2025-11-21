@@ -2,6 +2,7 @@ let currentChannel = null;
 let socket = null;
 let statsInterval = null;
 let previewHls = null;
+const activeLogLevels = new Set(['all']);
 
 document.addEventListener('DOMContentLoaded', () => {
     loadChannels();
@@ -78,6 +79,7 @@ function showChannelDetails(channelName) {
     loadChannelConfig();
     loadChannelHistory();
     loadChannelLogs();
+    loadEventHistory();
 
     if (socket) {
         socket.emit('subscribe_logs', { channel: channelName });
@@ -315,6 +317,8 @@ function appendLogLine(line) {
         logLine.classList.add('warning');
     } else if (line.includes('[INFO]') || line.includes('INFO')) {
         logLine.classList.add('info');
+    } else if (line.includes('[FFMPEG]')) {
+        logLine.classList.add('ffmpeg');
     }
     logLine.textContent = line.trim();
     logsContent.appendChild(logLine);
@@ -323,6 +327,7 @@ function appendLogLine(line) {
 
 function appendLogs(lines) {
     lines.forEach(line => appendLogLine(line));
+    applyLogFilter();
 }
 
 function clearLogs() {
@@ -412,5 +417,51 @@ function loadServerInfo() {
             }
         })
         .catch(error => console.error('Erro ao carregar IP:', error));
+}
+
+function toggleLogFilter(button) {
+    const level = button.dataset.level;
+    const buttons = document.querySelectorAll('.log-filter');
+    buttons.forEach(btn => btn.classList.remove('active'));
+    button.classList.add('active');
+    activeLogLevels.clear();
+    activeLogLevels.add(level);
+    applyLogFilter();
+}
+
+function applyLogFilter() {
+    const lines = document.querySelectorAll('.log-line');
+    const level = [...activeLogLevels][0];
+    lines.forEach(line => {
+        line.classList.remove('hidden');
+        if (level !== 'all' && !line.classList.contains(level)) {
+            line.classList.add('hidden');
+        }
+    });
+}
+
+async function loadEventHistory() {
+    if (!currentChannel) return;
+    try {
+        const response = await fetch(`/api/channel/${currentChannel}/events`);
+        const data = await response.json();
+        renderEventHistory(data.events || []);
+    } catch (error) {
+        console.error('Erro ao carregar eventos:', error);
+    }
+}
+
+function renderEventHistory(events) {
+    const list = document.getElementById('eventHistoryList');
+    list.innerHTML = '';
+    if (!events.length) {
+        list.innerHTML = '<li>Nenhum evento registrado ainda.</li>';
+        return;
+    }
+    events.reverse().forEach(line => {
+        const li = document.createElement('li');
+        li.textContent = line.trim();
+        list.appendChild(li);
+    });
 }
 

@@ -164,15 +164,29 @@
                     <div class="logs-header">
                         <div>
                             <h3>Logs em tempo real</h3>
-                            <p class="panel-subtitle">Saída completa do FFmpeg</p>
+                            <p class="panel-subtitle">Conteúdo que o FFmpeg está gerando</p>
                         </div>
                         <div class="logs-actions">
                             <button class="btn-history" onclick="loadChannelLogs()">Atualizar</button>
                             <button class="btn-history" onclick="clearLogs()">Limpar</button>
                         </div>
                     </div>
+                    <div class="log-filters">
+                        <button class="log-filter active" data-level="all" onclick="toggleLogFilter(this)">Todos</button>
+                        <button class="log-filter" data-level="info" onclick="toggleLogFilter(this)">Info</button>
+                        <button class="log-filter" data-level="warning" onclick="toggleLogFilter(this)">Avisos</button>
+                        <button class="log-filter" data-level="error" onclick="toggleLogFilter(this)">Erros</button>
+                        <button class="log-filter" data-level="ffmpeg" onclick="toggleLogFilter(this)">FFMPEG</button>
+                    </div>
                     <div id="logsContent" class="logs-content">
                         <!-- Logs serão renderizados aqui -->
+                    </div>
+                    <div class="events-section">
+                        <div class="events-header">
+                            <h4>Eventos recentes</h4>
+                            <button class="btn-history" onclick="loadEventHistory()">Atualizar histórico</button>
+                        </div>
+                        <ul id="eventHistoryList" class="event-list"></ul>
                     </div>
                 </section>
             </section>

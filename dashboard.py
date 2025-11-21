@@ -35,6 +35,11 @@ PREVIEW_DIR = Path('/app/preview')
 PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_HISTORY_DIR = Path('/app/config_history')
 CONFIG_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+EVENT_LOG_DIR = LOG_DIR
+PREVIEW_DIR = Path('/app/preview')
+PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_HISTORY_DIR = Path('/app/config_history')
+CONFIG_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
 # Estado das lives
 lives_status = {}
@@ -478,6 +483,17 @@ def get_stats(channel_name):
         'last_restart': None,
         'next_restart': None
     })
+
+
+@app.route('/api/channel/<channel_name>/events')
+@login_required
+def channel_events(channel_name):
+    event_file = EVENT_LOG_DIR / f"{channel_name}.events.log"
+    lines = []
+    if event_file.exists():
+        with open(event_file, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+    return jsonify({'events': lines[-100:] if lines else []})
 
 @app.route('/api/public-ip')
 @login_required
